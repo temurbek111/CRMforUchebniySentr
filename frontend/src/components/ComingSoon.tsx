@@ -22,7 +22,7 @@ export function ComingSoon({ module, title, path, note }: ComingSoonProps): Reac
   const heading = title === undefined ? module : title;
 
   return (
-    <div className="coming-soon">
+    <div className="coming-soon coming-soon--unimplemented">
       <span className="coming-soon__badge">
         <Icon name="alertCircle" size={12} />
         Not implemented yet

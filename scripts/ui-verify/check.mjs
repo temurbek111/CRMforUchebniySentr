@@ -232,6 +232,41 @@ for (const viewport of VIEWPORTS) {
       record('structure', route.path, viewport.name, `title was ${JSON.stringify(structure.title)}, expected to include ${JSON.stringify(EXPECTED_TITLE)}`)
     }
 
+    // 5. The route must have rendered real content - not an honest placeholder,
+    //    and not nothing at all.
+    //
+    //    This is the check that catches a screen which looks healthy while
+    //    telling the user nothing: a navigation entry whose page module was never
+    //    written resolves to ComingSoon, and every other assertion here passes on
+    //    it. It also catches a route that threw during render and left an empty
+    //    shell behind.
+    //
+    //    The marker is a class the placeholder component owns
+    //    (`coming-soon--unimplemented`), not the shared `.coming-soon` styling
+    //    class - NotFoundPage uses that for its 404 layout, and matching it here
+    //    would report a false positive on every unknown URL.
+    const rendered = await page.evaluate(() => ({
+      placeholder: document.querySelectorAll('.coming-soon--unimplemented').length,
+      mainText: (document.querySelector('main')?.innerText ?? document.body.innerText).trim().length,
+    }))
+    if (rendered.placeholder > 0) {
+      record(
+        'placeholder',
+        route.path,
+        viewport.name,
+        'route resolved to the "Not implemented yet" placeholder — the navigation offers a page that was never written',
+      )
+    }
+    // /does-not-exist is *supposed* to be sparse: it is the 404 page.
+    if (route.path !== '/does-not-exist' && rendered.mainText < 100) {
+      record(
+        'empty-route',
+        route.path,
+        viewport.name,
+        `route rendered almost nothing (${rendered.mainText} characters of text)`,
+      )
+    }
+
     await page.screenshot({ path: `${OUT}/${route.name}-${viewport.name}.png`, fullPage: true })
     await page.close()
   }

@@ -397,11 +397,18 @@ export function UsersPage() {
   const count = resource.data?.count ?? 0;
   const totalPages = resource.data?.total_pages ?? 0;
 
-  // RoleViewSet requires roles.manage. A manager holds users.view without it, so
-  // a failure here is expected and must not break the screen.
+  // RoleViewSet requires roles.manage, which a manager holding only users.view
+  // does not have. Asking anyway would fire a 403 (and a console error) on every
+  // visit to this screen, so the request is made only when it can succeed;
+  // otherwise the picker falls back to the roles present on the loaded accounts.
+  const canReadRoles = hasPerm(PERMISSIONS.ROLES_MANAGE);
+
   const rolesResource = useAsyncResource(
-    () => (canView ? rolesApi.list().catch(() => [] as Role[]) : Promise.resolve([] as Role[])),
-    `settings-roles|${canView}`,
+    () =>
+      canView && canReadRoles
+        ? rolesApi.list().catch(() => [] as Role[])
+        : Promise.resolve([] as Role[]),
+    `settings-roles|${canView}|${canReadRoles}`,
   );
 
   const roleOptions = useMemo<Array<{ value: number; label: string }>>(() => {
