@@ -7,8 +7,22 @@ import django_filters as filters
 from .models import Lead
 
 
+class CharInFilter(filters.BaseInFilter, filters.CharFilter):
+    """Comma-separated multi-value equality: ``?status_in=a,b``.
+
+    django-filter's documented idiom for an "in" filter over a text column.
+    ``status`` itself stays single-valued because the pipeline browser sends one
+    status at a time; this exists for the scoped queue views (see
+    ``status_in`` below).
+    """
+
+
 class LeadFilter(filters.FilterSet):
     status = filters.CharFilter(field_name="status", lookup_expr="iexact")
+    #: The admissions conversion queue, e.g.
+    #: ``?status_in=trial_completed,interested`` (apps/crm/models.LeadStatus).
+    #: A single ``status`` cannot express a two-status queue.
+    status_in = CharInFilter(field_name="status", lookup_expr="in")
     source = filters.CharFilter(field_name="source", lookup_expr="iexact")
     assigned_to = filters.NumberFilter(field_name="assigned_to_id")
     interested_course = filters.NumberFilter(field_name="interested_course_id")

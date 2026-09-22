@@ -19,6 +19,8 @@ from apps.crm.services import (
     record_trial_completed,
     schedule_trial,
 )
+from rest_framework.test import APIClient
+
 from tests.factories import make_course, make_group, make_user
 
 pytestmark = pytest.mark.django_db
@@ -27,6 +29,14 @@ pytestmark = pytest.mark.django_db
 @pytest.fixture
 def receptionist():
     return make_user("front.desk", "receptionist")
+
+
+@pytest.fixture
+def crm_client(receptionist):
+    """An API client signed in as a role that may read the pipeline."""
+    client = APIClient()
+    client.force_authenticate(receptionist)
+    return client
 
 
 def test_a_lead_needs_a_name_and_a_phone():
@@ -139,3 +149,67 @@ def test_activity_logging_validates_kind():
         log_activity(lead, "carrier_pigeon", "not a channel")
     entry = log_activity(lead, "call", "Left a voicemail")
     assert entry.kind == "call"
+
+
+# --------------------------------------------------------------------------- #
+# Scoped queue views (the /trials and /admissions screens)
+#
+# Both screens are filters over this same endpoint rather than endpoints of
+# their own - see apps/crm/views.LeadViewSet and apps/crm/filters.LeadFilter.
+# --------------------------------------------------------------------------- #
+
+
+def test_trials_listing_is_driven_by_has_trial(receptionist, crm_client):
+    """`?has_trial=true` is the trials listing (no separate trials endpoint)."""
+    booked = create_lead(full_name="Booked Trial", phone="+998****2001",
+                         actor=receptionist)
+    schedule_trial(booked, date.today() + timedelta(days=1), actor=receptionist)
+    create_lead(full_name="Never Booked", phone="+998****2002", actor=receptionist)
+
+    response = crm_client.get("/api/leads/?has_trial=true&page_size=200")
+    assert response.status_code == 200
+    names = {row["full_name"] for row in response.json()["results"]}
+    assert names == {"Booked Trial"}
+
+
+def test_admissions_queue_selects_exactly_its_two_statuses(receptionist, crm_client):
+    """The queue spans trial_completed + interested, which a single `status`
+    parameter cannot express - hence status_in."""
+    completed = create_lead(full_name="Finished Trial", phone="+998****2003",
+                            actor=receptionist)
+    interested = create_lead(full_name="Deciding", phone="+998****2004",
+                             actor=receptionist)
+    change_lead_status(completed, LeadStatus.TRIAL_COMPLETED, actor=receptionist)
+    change_lead_status(interested, LeadStatus.INTERESTED, actor=receptionist)
+    # Noise that must NOT appear in the queue.
+    change_lead_status(create_lead(full_name="Registered", phone="+998****2005",
+                                   actor=receptionist),
+                       LeadStatus.REGISTERED, actor=receptionist)
+    create_lead(full_name="Brand New", phone="+998****2006", actor=receptionist)
+
+    response = crm_client.get(
+        "/api/leads/?status_in=trial_completed,interested&page_size=200"
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] == 2
+    assert {row["status"] for row in body["results"]} == {"trial_completed", "interested"}
+
+
+def test_status_in_with_unknown_values_returns_empty_not_an_error(crm_client):
+    response = crm_client.get("/api/leads/?status_in=carrier_pigeon")
+    assert response.status_code == 200
+    assert response.json()["count"] == 0
+
+
+def test_the_single_status_filter_is_unchanged(receptionist, crm_client):
+    """Adding status_in must not alter the pipeline browser's own filter."""
+    keep = create_lead(full_name="The One", phone="+998****2007", actor=receptionist)
+    change_lead_status(keep, LeadStatus.CONTACTED, actor=receptionist)
+    other = create_lead(full_name="The Other", phone="+998****2008", actor=receptionist)
+    change_lead_status(other, LeadStatus.INTERESTED, actor=receptionist)
+
+    response = crm_client.get("/api/leads/?status=contacted&page_size=200")
+    assert response.status_code == 200
+    assert response.json()["count"] == 1
+    assert response.json()["results"][0]["status"] == "contacted"

@@ -37,6 +37,7 @@ import {
   mergeLeadSources,
   observedSources,
   type Lead,
+  type LeadListParams,
   type LeadWritePayload,
 } from './api';
 import { LeadStatusBadge } from './widgets';
@@ -256,11 +257,36 @@ function NewLeadModal({ open, sources, courses, onClose, onSaved }: NewLeadModal
 // Page
 // --------------------------------------------------------------------------- //
 
-export function LeadsListPage() {
+export interface LeadsListPageProps {
+  /** Page heading. Defaults to "Leads". */
+  title?: string;
+  /**
+   * Parameters applied to every request, which lock the page to a slice of the
+   * pipeline. When supplied the page becomes a queue view: the status chips and
+   * the "New lead" action are hidden, because the view is already scoped and
+   * those controls would contradict it.
+   *
+   * This is how /trials (`has_trial`) and /admissions (`status_in`) reuse this
+   * page instead of duplicating it.
+   */
+  baseParams?: Partial<LeadListParams>;
+  emptyTitle?: string;
+  emptyMessage?: string;
+}
+
+export function LeadsListPage({
+  title = 'Leads',
+  baseParams,
+  emptyTitle = 'No leads found',
+  emptyMessage,
+}: LeadsListPageProps = {}) {
   const navigate = useNavigate();
   const settings = useSettings();
   const { hasPerm } = useAuth();
   const canManage = hasPerm(PERMISSIONS.LEADS_MANAGE);
+
+  /** True when the view is a fixed slice of the pipeline rather than the browser. */
+  const scoped = baseParams !== undefined;
 
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
@@ -273,11 +299,12 @@ export function LeadsListPage() {
   const reference = useReferenceData();
   const courses = reference.data?.courses ?? [];
 
-  const queryKey = [search, status, source, course, page, pageSize].join('|');
+  const queryKey = [JSON.stringify(baseParams ?? {}), search, status, source, course, page, pageSize].join('|');
 
   const resource = useAsyncResource(
     () =>
       crmApi.list({
+        ...baseParams,
         search: search.trim() === '' ? undefined : search.trim(),
         status: status === '' ? undefined : status,
         source: source === '' ? undefined : source,
@@ -357,7 +384,7 @@ export function LeadsListPage() {
   );
 
   const hasFilters =
-    search.trim() !== '' || status !== '' || source !== '' || course !== '';
+    search.trim() !== '' || (!scoped && status !== '') || source !== '' || course !== '';
 
   const toolbar = (
     <div className="toolbar-split">
@@ -401,16 +428,19 @@ export function LeadsListPage() {
 
       <span className="toolbar-split__spacer" />
 
-      <FilterChips
-        options={LEAD_STATUS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
-        value={status}
-        onChange={(value) => {
-          setStatus(value);
-          resetToFirstPage();
-        }}
-        allLabel="Any status"
-        label="Filter leads by status"
-      />
+      {/* The status chips would contradict a view that is already scoped. */}
+      {scoped ? null : (
+        <FilterChips
+          options={LEAD_STATUS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+          value={status}
+          onChange={(value) => {
+            setStatus(value);
+            resetToFirstPage();
+          }}
+          allLabel="Any status"
+          label="Filter leads by status"
+        />
+      )}
 
       <RefreshButton onClick={resource.reload} label="Reload" />
     </div>
@@ -420,14 +450,14 @@ export function LeadsListPage() {
     <div className="module-page">
       <header className="page-header">
         <div className="page-header__heading">
-          <h1 className="page-header__title">Leads</h1>
+          <h1 className="page-header__title">{title}</h1>
           <p className="page-header__subtitle">
             {resource.loading
               ? 'Loading leads…'
               : `${settings.number(count)} ${count === 1 ? 'lead' : 'leads'} match the current filters.`}
           </p>
         </div>
-        {canManage ? (
+        {canManage && !scoped ? (
           <div className="page-header__actions">
             <Button variant="primary" icon="plus" onClick={() => setFormOpen(true)}>
               New lead
@@ -450,14 +480,15 @@ export function LeadsListPage() {
           stickyHeader
           toolbar={toolbar}
           emptyIcon="crm"
-          emptyTitle="No leads found"
+          emptyTitle={emptyTitle}
           emptyMessage={
-            hasFilters
+            emptyMessage ??
+            (hasFilters
               ? 'Try clearing the search box or one of the filters.'
-              : 'Leads you add will appear here, newest first.'
+              : 'Leads you add will appear here, newest first.')
           }
           emptyAction={
-            canManage && !hasFilters ? (
+            canManage && !hasFilters && !scoped ? (
               <Button variant="primary" icon="plus" onClick={() => setFormOpen(true)}>
                 New lead
               </Button>

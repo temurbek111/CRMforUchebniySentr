@@ -38,12 +38,8 @@ const realRoutes: RouteObject[] = [
  * is never mistaken for a broken one.
  */
 const COMING_SOON_PATHS = new Set<string>([
-  // NOTE: '/leads' is NOT here - the CRM module now supplies it via crmRoutes.
-  // '/trials' and '/admissions' remain placeholders: they are status views over
-  // the same /api/leads rows (see pages/crm/api.ts ADMISSIONS_QUEUE_STATUSES)
-  // and are still awaiting their page modules.
-  '/trials',
-  '/admissions',
+  // NOTE: the whole CRM module (/leads, /leads/:id, /trials, /admissions) is now
+  // supplied by crmRoutes - none of its paths belong here.
   '/reports',
   '/settings/users',
   '/settings/roles',

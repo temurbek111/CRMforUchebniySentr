@@ -261,6 +261,12 @@ export interface ConvertLeadResult {
 export interface LeadListParams {
   search?: string;
   status?: string;
+  /**
+   * Comma-separated multi-value status filter (`?status_in=a,b`,
+   * apps/crm/filters.LeadFilter). Used by the scoped queue views, which span two
+   * statuses and therefore cannot use the single-valued `status`.
+   */
+  status_in?: string;
   source?: string;
   interested_course?: number | '';
   assigned_to?: number | '';
