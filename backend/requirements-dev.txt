@@ -1,0 +1,13 @@
+# Development and testing dependencies. Python 3.13.
+#
+# These are deliberately NOT in requirements.txt: production images install only
+# the runtime, and pytest is a build-time tool. They are pinned here so a
+# dependency sync cannot silently remove the ability to run the test suite —
+# which happened once, because pytest was installed ad hoc and then pruned.
+#
+#   uv pip install -r requirements-dev.txt
+
+-r requirements.txt
+
+pytest==8.4.2
+pytest-django==4.11.1

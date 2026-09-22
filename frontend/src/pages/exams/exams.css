@@ -1,0 +1,302 @@
+/*
+ * Exams / Results / Progress module styles.
+ * Token-driven; no hardcoded palette, no gradients.
+ */
+
+.ex-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.ex-filters__field {
+  min-width: 160px;
+  flex: 1 1 160px;
+}
+
+.ex-filters__search {
+  min-width: 220px;
+  flex: 2 1 220px;
+}
+
+/* ------------------------------------------------------ component editor */
+.ex-components {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  background: var(--color-surface-muted);
+}
+
+.ex-components__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.ex-components__row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.ex-components__name {
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+
+.ex-components__score {
+  flex: 0 0 110px;
+}
+
+.ex-components__remove {
+  flex: 0 0 auto;
+}
+
+.ex-hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-subtle);
+}
+
+/* ------------------------------------------------------------- mark sheet */
+.ex-sheet {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.ex-sheet th,
+.ex-sheet td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+  text-align: left;
+}
+
+.ex-sheet th {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-text-subtle);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.ex-sheet tbody tr:hover td {
+  background: var(--color-surface-muted);
+}
+
+.ex-sheet tr.is-dirty td {
+  background: var(--color-warning-soft);
+}
+
+.ex-sheet__who {
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+}
+
+.ex-sheet__score {
+  width: 96px;
+}
+
+.ex-sheet__score .input {
+  min-height: 44px;
+}
+
+.ex-sheet__invalid .input {
+  border-color: var(--color-danger);
+}
+
+.ex-sheet__error {
+  font-size: var(--text-xs);
+  color: var(--color-danger);
+}
+
+.ex-sheet__comment {
+  min-width: 200px;
+}
+
+.ex-sheet__overall {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ex-scroll {
+  overflow-x: auto;
+}
+
+/* ------------------------------------------------------------- statistics */
+.ex-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: var(--space-3);
+}
+
+.ex-stat {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  padding: var(--space-3);
+}
+
+.ex-stat__label {
+  display: block;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-text-subtle);
+}
+
+.ex-stat__value {
+  display: block;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  margin-top: var(--space-1);
+}
+
+.ex-below {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.ex-below__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-danger-border);
+  background: var(--color-danger-soft);
+  border-radius: var(--radius-sm);
+}
+
+/* --------------------------------------------------------------- progress */
+.ex-progress__split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.ex-progress__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.ex-progress__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
+.ex-metric {
+  display: flex;
+  flex-direction: column;
+}
+
+.ex-metric__label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-text-subtle);
+}
+
+.ex-metric__value {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.ex-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+}
+
+.ex-evidence__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+}
+
+.ex-evidence__label {
+  font-size: var(--text-xs);
+  color: var(--color-text-subtle);
+}
+
+.ex-evidence__value {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.ex-reasons {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ex-reasons__item {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.ex-bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.ex-bar {
+  display: grid;
+  grid-template-columns: 140px 1fr 64px;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.ex-bar__label {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ex-bar__track {
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-sunken);
+  overflow: hidden;
+}
+
+.ex-bar__fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+}
+
+.ex-bar__value {
+  font-size: var(--text-sm);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 900px) {
+  .ex-progress__split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -1,0 +1,138 @@
+/**
+ * Design tokens - the single source of truth for colour, spacing, radius,
+ * typography and elevation. Every component style in global.css composes these
+ * variables; new module pages must do the same instead of inventing values.
+ *
+ * Light theme only, by design: no gradients, no decorative animation, one
+ * primary accent, semantic colours reserved for status.
+ */
+
+:root {
+  /* ---------------------------------------------------------------- colour */
+  --color-bg: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f2f4f7;
+  --color-surface-sunken: #eef0f4;
+
+  --color-border: #e4e7ec;
+  --color-border-strong: #d5d9e0;
+  --color-border-focus: var(--color-primary);
+
+  --color-text: #1b2333;
+  --color-text-muted: #667085;
+  --color-text-subtle: #98a2b3;
+  --color-text-inverse: #ffffff;
+
+  /* One primary accent, plus a neutral hover tint. */
+  --color-primary: #2f5bff;
+  --color-primary-hover: #2449d8;
+  --color-primary-active: #1d3cb8;
+  --color-primary-soft: #eef2ff;
+  --color-primary-border: #c9d5ff;
+  --color-primary-text: #1e3aa8;
+
+  /* Status colours - only ever used to communicate state. */
+  --color-success: #0f7b4f;
+  --color-success-soft: #e9f8f0;
+  --color-success-border: #b5e3cd;
+
+  --color-warning: #a45b08;
+  --color-warning-soft: #fdf5e6;
+  --color-warning-border: #f2dcae;
+
+  --color-danger: #b3261e;
+  --color-danger-soft: #fdeeec;
+  --color-danger-border: #f3c6c2;
+
+  --color-info: #11608f;
+  --color-info-soft: #eaf4fb;
+  --color-info-border: #bcdcef;
+
+  --color-neutral-soft: #f2f4f7;
+  --color-neutral-border: #dcdfe5;
+
+  /* Chart series palette (hand-rolled SVG charts). */
+  --chart-1: #2f5bff;
+  --chart-2: #0f9d8b;
+  --chart-3: #b26a00;
+  --chart-4: #7c4dbd;
+  --chart-5: #b3261e;
+  --chart-6: #4b5563;
+  --chart-grid: #e9ebf0;
+  --chart-axis: #98a2b3;
+
+  /* --------------------------------------------------------------- spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-9: 48px;
+
+  /* ---------------------------------------------------------------- radius */
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-full: 999px;
+
+  /* ------------------------------------------------------------ typography */
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, 'Noto Sans', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono',
+    monospace;
+
+  --text-xs: 11.5px;
+  --text-sm: 12.5px;
+  --text-base: 13.5px;
+  --text-md: 14.5px;
+  --text-lg: 17px;
+  --text-xl: 21px;
+  --text-2xl: 26px;
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.45;
+  --leading-relaxed: 1.6;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  --tracking-wide: 0.03em;
+
+  /* --------------------------------------------------------------- shadows */
+  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-sm: 0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-md: 0 4px 10px rgba(16, 24, 40, 0.08), 0 1px 3px rgba(16, 24, 40, 0.05);
+  --shadow-lg: 0 12px 28px rgba(16, 24, 40, 0.14);
+
+  /* ----------------------------------------------------------- interaction */
+  --focus-ring: 0 0 0 3px rgba(47, 91, 255, 0.22);
+  --transition-fast: 110ms ease;
+  --transition-base: 160ms ease;
+
+  /* ---------------------------------------------------------------- layout */
+  --sidebar-width: 244px;
+  --sidebar-width-collapsed: 62px;
+  --topbar-height: 56px;
+  --content-max-width: 1560px;
+
+  /* ------------------------------------------------------------ components */
+  --control-height: 34px;
+  --control-height-sm: 28px;
+  --table-row-height: 38px;
+  --z-sidebar: 40;
+  --z-overlay: 60;
+  --z-modal: 70;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-fast: 0ms;
+    --transition-base: 0ms;
+  }
+}

@@ -1,0 +1,28 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.coverage
+htmlcov/
+.env
+*.sqlite3
+db.sqlite3
+media/
+staticfiles/
+
+# --- Node ---
+node_modules/
+frontend/dist/
+*.log
+npm-debug.log*
+
+# --- Editors / OS ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# --- Local env artifacts ---
+.hermes/tmp/

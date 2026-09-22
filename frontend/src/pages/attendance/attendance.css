@@ -1,0 +1,332 @@
+/*
+ * Attendance module styles.
+ *
+ * Module-scoped: every value comes from the design tokens in styles/tokens.css
+ * (colour, spacing, radius, typography). No hardcoded palette. Sized for a
+ * teacher marking attendance on a phone: touch targets are >= 44px.
+ */
+
+/* ------------------------------------------------------------------ tabs */
+.att-tabs {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-4);
+  overflow-x: auto;
+}
+
+.att-tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--text-base);
+  padding: 0 var(--space-4);
+  height: 32px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.att-tab:hover {
+  color: var(--color-text);
+}
+
+.att-tab.is-active {
+  background: var(--color-surface);
+  color: var(--color-primary-text);
+  font-weight: var(--weight-medium);
+  box-shadow: var(--shadow-xs);
+}
+
+/* --------------------------------------------------------------- pickers */
+.att-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.att-picker__field {
+  min-width: 190px;
+  flex: 1 1 190px;
+}
+
+/* ------------------------------------------------------------ dirty bar */
+.att-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: var(--space-4) 0 var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.att-bar.is-dirty {
+  border-color: var(--color-warning-border);
+  background: var(--color-warning-soft);
+}
+
+.att-bar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.att-dirty {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-warning);
+  font-weight: var(--weight-medium);
+}
+
+/* ------------------------------------------------------------ statistics */
+.att-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.att-stat {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  padding: var(--space-3);
+}
+
+.att-stat__label {
+  display: block;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-text-subtle);
+}
+
+.att-stat__value {
+  display: block;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  margin-top: var(--space-1);
+}
+
+.att-stat--present .att-stat__value {
+  color: var(--color-success);
+}
+.att-stat--absent .att-stat__value {
+  color: var(--color-danger);
+}
+.att-stat--late .att-stat__value {
+  color: var(--color-warning);
+}
+.att-stat--excused .att-stat__value {
+  color: var(--color-info);
+}
+
+/* ---------------------------------------------------------------- roster */
+.att-roster {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.att-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.att-row.is-active {
+  border-color: var(--color-primary-border);
+  box-shadow: var(--focus-ring);
+}
+
+.att-row.is-unmarked {
+  border-left: 3px solid var(--color-neutral-border);
+}
+
+.att-row__who {
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  flex: 1 1 160px;
+}
+
+.att-row__name {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+}
+
+.att-row__code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-subtle);
+}
+
+.att-row__status {
+  display: flex;
+  flex: 0 0 auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.att-row__extra {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 240px;
+}
+
+.att-row__extra .select,
+.att-row__extra .input {
+  min-height: 44px;
+}
+
+.att-row__reason {
+  flex: 0 1 150px;
+}
+
+.att-row__note {
+  flex: 1 1 140px;
+}
+
+/* --------------------------------------------------------- status buttons */
+.att-seg {
+  appearance: none;
+  border: 0;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  min-width: 74px;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  cursor: pointer;
+}
+
+.att-seg:last-child {
+  border-right: 0;
+}
+
+.att-seg:hover:not(:disabled) {
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+
+.att-seg:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.att-seg--present[aria-pressed='true'] {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+.att-seg--absent[aria-pressed='true'] {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+.att-seg--late[aria-pressed='true'] {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+.att-seg--excused[aria-pressed='true'] {
+  background: var(--color-info-soft);
+  color: var(--color-info);
+}
+
+/* ------------------------------------------------------------- keyboard */
+.att-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--color-text-subtle);
+}
+
+.att-kbd {
+  display: inline-block;
+  min-width: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  background: var(--color-surface-muted);
+  font-family: var(--font-mono);
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------- lists */
+.att-sessions,
+.att-pending {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.att-pending__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-warning-border);
+  background: var(--color-warning-soft);
+  border-radius: var(--radius-md);
+}
+
+.att-pending__group {
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+}
+
+.att-meta {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.att-subtle {
+  font-size: var(--text-xs);
+  color: var(--color-text-subtle);
+}
+
+.att-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+@media (max-width: 720px) {
+  .att-row__status {
+    width: 100%;
+  }
+  .att-seg {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0 var(--space-1);
+  }
+}

@@ -1,0 +1,9 @@
+# Production dependencies (pinned). Python 3.13.
+Django==5.2.17
+djangorestframework==3.18.1
+django-filter==26.1
+python-dotenv==1.2.3
+whitenoise==6.12.0
+psycopg[binary]==3.3.6
+Pillow==12.3.0
+gunicorn==26.2.0

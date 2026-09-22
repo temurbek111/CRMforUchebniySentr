@@ -1,0 +1,14 @@
+# --- Node / build output (the repo root .gitignore also covers these) ---
+node_modules/
+dist/
+dist-ssr/
+*.local
+npm-debug.log*
+yarn-error.log*
+.vite/
+
+# --- Editors / OS ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
