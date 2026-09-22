@@ -13,6 +13,7 @@ import { examRoutes } from './pages/exams';
 import { financeRoutes } from './pages/finance';
 import { groupRoutes } from './pages/groups';
 import { scheduleRoutes } from './pages/schedule';
+import { auditRoutes } from './pages/settings';
 import { studentRoutes } from './pages/students';
 import { teacherRoutes } from './pages/teachers';
 
@@ -22,6 +23,7 @@ import { teacherRoutes } from './pages/teachers';
  */
 const realRoutes: RouteObject[] = [
   ...attendanceRoutes,
+  ...auditRoutes,
   ...crmRoutes,
   ...examRoutes,
   ...financeRoutes,
@@ -39,14 +41,14 @@ const realRoutes: RouteObject[] = [
  */
 const COMING_SOON_PATHS = new Set<string>([
   // NOTE: the whole CRM module (/leads, /leads/:id, /trials, /admissions) is now
-  // supplied by crmRoutes - none of its paths belong here.
+  // supplied by crmRoutes, and /audit by auditRoutes - none of those paths
+  // belong here.
   '/reports',
   '/settings/users',
   '/settings/roles',
   '/settings/courses',
   '/settings/rooms',
   '/settings/system',
-  '/audit',
 ]);
 
 const moduleRoutes: RouteObject[] = ROUTE_STUBS
