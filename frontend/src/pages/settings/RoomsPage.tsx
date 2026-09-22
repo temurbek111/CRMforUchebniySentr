@@ -287,18 +287,16 @@ export function RoomsPage() {
 
   const queryKey = [canView, search, status, page, pageSize].join('|');
 
-  // `roomsCrudApi.list` is the schedule module's `rooms()` helper: it spreads
-  // whatever it is given straight into the query string, so the standard
-  // `page` / `page_size` parameters reach the server alongside the filters.
-  const listParams = {
-    search: search.trim() === '' ? undefined : search.trim(),
-    status: status === '' ? undefined : status,
-    page,
-    page_size: pageSize,
-  };
-
   const resource = useAsyncResource(
-    () => (canView ? roomsCrudApi.list(listParams) : Promise.resolve(emptyPage(pageSize))),
+    () =>
+      canView
+        ? roomsCrudApi.list({
+            search: search.trim() === '' ? undefined : search.trim(),
+            status: status === '' ? undefined : status,
+            page,
+            page_size: pageSize,
+          })
+        : Promise.resolve(emptyPage(pageSize)),
     queryKey,
   );
 

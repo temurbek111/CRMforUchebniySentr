@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, list, listAll } from '../../api';
-import type { Paginated, QueryParams } from '../../types';
+import type { ListQueryParams, Paginated, QueryParams } from '../../types';
 import { toIsoDate } from '../../utils/format';
 import type {
   CourseOption,
@@ -62,7 +62,18 @@ export function deleteSlot(id: number): Promise<void> {
   return api.delete<void>(`${SCHEDULE}${id}/`);
 }
 
-export function rooms(params: { search?: string; status?: string } = {}): Promise<Paginated<Room>> {
+/** Query for the room list: the room filters plus the standard paging params. */
+export interface RoomsQuery extends ListQueryParams {
+  search?: string;
+  status?: string;
+}
+
+/**
+ * One page of rooms. The params object is spread straight into the query string,
+ * so the standard `page` / `page_size` reach the server alongside the filters -
+ * the type says so, so callers do not have to work around it.
+ */
+export function rooms(params: RoomsQuery = {}): Promise<Paginated<Room>> {
   return list<Room>('/api/rooms/', { ...params });
 }
 
