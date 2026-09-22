@@ -14,7 +14,7 @@ import { financeRoutes } from './pages/finance';
 import { groupRoutes } from './pages/groups';
 import { reportRoutes } from './pages/reports';
 import { scheduleRoutes } from './pages/schedule';
-import { auditRoutes } from './pages/settings';
+import { auditRoutes, settingsRoutes } from './pages/settings';
 import { studentRoutes } from './pages/students';
 import { teacherRoutes } from './pages/teachers';
 
@@ -31,26 +31,22 @@ const realRoutes: RouteObject[] = [
   ...groupRoutes,
   ...reportRoutes,
   ...scheduleRoutes,
+  ...settingsRoutes,
   ...studentRoutes,
   ...teacherRoutes,
 ];
 
 /**
- * Navigation paths whose page module is not written yet. They still resolve —
+ * Navigation paths whose page module is not written yet. They still resolve -
  * to a clearly-labelled placeholder that names the module and the permission
- * behind it — so the navigation never lies about what exists and a missing page
+ * behind it - so the navigation never lies about what exists and a missing page
  * is never mistaken for a broken one.
+ *
+ * EMPTY: every path in the navigation is now backed by a real page. The
+ * mechanism is kept, and the set must stay empty - a path appearing here again
+ * means a page was removed without removing its navigation entry.
  */
-const COMING_SOON_PATHS = new Set<string>([
-  // NOTE: /leads, /leads/:id, /trials, /admissions (crmRoutes), /audit
-  // (auditRoutes) and /reports (reportRoutes) are all real now. Only the five
-  // /settings/* screens remain placeholders.
-  '/settings/users',
-  '/settings/roles',
-  '/settings/courses',
-  '/settings/rooms',
-  '/settings/system',
-]);
+const COMING_SOON_PATHS = new Set<string>([]);
 
 const moduleRoutes: RouteObject[] = ROUTE_STUBS
   .filter((stub) => stub.path !== '/' && COMING_SOON_PATHS.has(stub.path))

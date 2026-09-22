@@ -15,8 +15,27 @@
 
 import type { RouteObject } from 'react-router-dom';
 import { AuditPage } from './AuditPage';
+import { CoursesPage } from './CoursesPage';
+import { RolesPage } from './RolesPage';
+import { RoomsPage } from './RoomsPage';
+import { SystemSettingsPage } from './SystemSettingsPage';
+import { UsersPage } from './UsersPage';
 
 export { AuditPage } from './AuditPage';
+export { CoursesPage } from './CoursesPage';
+export { RolesPage } from './RolesPage';
+export { RoomsPage } from './RoomsPage';
+export { SystemSettingsPage } from './SystemSettingsPage';
+export { UsersPage } from './UsersPage';
 
 /** The append-only audit trail. Read-only; requires audit.view. */
 export const auditRoutes: RouteObject[] = [{ path: 'audit', element: <AuditPage /> }];
+
+/** The five administration screens under /settings. */
+export const settingsRoutes: RouteObject[] = [
+  { path: 'settings/users', element: <UsersPage /> },
+  { path: 'settings/roles', element: <RolesPage /> },
+  { path: 'settings/courses', element: <CoursesPage /> },
+  { path: 'settings/rooms', element: <RoomsPage /> },
+  { path: 'settings/system', element: <SystemSettingsPage /> },
+];

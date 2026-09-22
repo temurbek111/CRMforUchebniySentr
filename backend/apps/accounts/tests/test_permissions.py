@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from rest_framework.test import APIClient
 
+from apps.accounts.models import Role
 from apps.accounts.rbac import ALL_PERMISSIONS, Perm, navigation_for
 from tests.factories import make_user
 
@@ -127,3 +128,33 @@ def test_health_endpoint_is_public():
     response = client.get("/api/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+def test_role_permissions_in_the_database_do_not_yet_drive_enforcement():
+    """CHARACTERISATION TEST - pins a real inconsistency, found while building
+    the /settings/roles admin screen.
+
+    `PATCH /api/roles/{id}/` lets an administrator replace a role's whole
+    permission set, and `Role.permissions` stores it faithfully. But
+    authorization reads `ROLE_MATRIX` from apps/accounts/rbac.py
+    (`permissions_for_role` -> `User.permission_codes` -> `RequirePerms`), and
+    never looks at the database rows. So a saved role edit does not change what
+    anybody may actually do, and the admin screen would be a convincing lie.
+
+    This test asserts today's behaviour on purpose: stripping every permission
+    from a role row leaves the role's access completely intact. When the two
+    sources are reconciled, this test MUST start failing - that failure is the
+    signal to rewrite it to assert the database is authoritative.
+    """
+    role, _ = Role.objects.get_or_create(code="manager", defaults={"name": "Manager"})
+    role.permissions.clear()          # strip the role row of every permission
+    assert role.permission_codes() == set()
+
+    manager = make_user("mgr.stripped", "manager")
+
+    # Enforcement is unaffected, because it never reads the row we just emptied.
+    assert Perm.STUDENTS_VIEW in manager.permission_codes()
+    client = APIClient()
+    client.force_authenticate(manager)
+    assert client.get("/api/students/").status_code == 200
+    assert client.get("/api/dashboard").status_code == 200
