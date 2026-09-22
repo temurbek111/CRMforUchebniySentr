@@ -43,7 +43,6 @@ import type {
   ListQueryParams,
   Paginated,
   Permission,
-  QueryParams,
   Role,
   User,
 } from '../../types';
