@@ -12,6 +12,7 @@ import { crmRoutes } from './pages/crm';
 import { examRoutes } from './pages/exams';
 import { financeRoutes } from './pages/finance';
 import { groupRoutes } from './pages/groups';
+import { reportRoutes } from './pages/reports';
 import { scheduleRoutes } from './pages/schedule';
 import { auditRoutes } from './pages/settings';
 import { studentRoutes } from './pages/students';
@@ -28,6 +29,7 @@ const realRoutes: RouteObject[] = [
   ...examRoutes,
   ...financeRoutes,
   ...groupRoutes,
+  ...reportRoutes,
   ...scheduleRoutes,
   ...studentRoutes,
   ...teacherRoutes,
@@ -40,10 +42,9 @@ const realRoutes: RouteObject[] = [
  * is never mistaken for a broken one.
  */
 const COMING_SOON_PATHS = new Set<string>([
-  // NOTE: the whole CRM module (/leads, /leads/:id, /trials, /admissions) is now
-  // supplied by crmRoutes, and /audit by auditRoutes - none of those paths
-  // belong here.
-  '/reports',
+  // NOTE: /leads, /leads/:id, /trials, /admissions (crmRoutes), /audit
+  // (auditRoutes) and /reports (reportRoutes) are all real now. Only the five
+  // /settings/* screens remain placeholders.
   '/settings/users',
   '/settings/roles',
   '/settings/courses',
