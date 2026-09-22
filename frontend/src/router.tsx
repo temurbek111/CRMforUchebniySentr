@@ -3,11 +3,12 @@ import { RequireAuth } from './auth/RequireAuth';
 import { ComingSoon } from './components/ComingSoon';
 import { AppLayout } from './layout/AppLayout';
 import { ROUTE_STUBS, SHELL_ROUTES } from './navigation/routeManifest';
-import { DashboardPage } from './pages/DashboardPage';
+import { DashboardPage } from './pages/dashboard';
 import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { SearchResultsPage } from './pages/search/SearchResultsPage';
 import { attendanceRoutes } from './pages/attendance';
+import { crmRoutes } from './pages/crm';
 import { examRoutes } from './pages/exams';
 import { financeRoutes } from './pages/finance';
 import { groupRoutes } from './pages/groups';
@@ -21,6 +22,7 @@ import { teacherRoutes } from './pages/teachers';
  */
 const realRoutes: RouteObject[] = [
   ...attendanceRoutes,
+  ...crmRoutes,
   ...examRoutes,
   ...financeRoutes,
   ...groupRoutes,
@@ -36,7 +38,10 @@ const realRoutes: RouteObject[] = [
  * is never mistaken for a broken one.
  */
 const COMING_SOON_PATHS = new Set<string>([
-  '/leads',
+  // NOTE: '/leads' is NOT here - the CRM module now supplies it via crmRoutes.
+  // '/trials' and '/admissions' remain placeholders: they are status views over
+  // the same /api/leads rows (see pages/crm/api.ts ADMISSIONS_QUEUE_STATUSES)
+  // and are still awaiting their page modules.
   '/trials',
   '/admissions',
   '/reports',
