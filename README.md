@@ -24,18 +24,19 @@ Change these before any real deployment.
 
 ---
 
-## Production
+Running:
 
-```bash
-cd frontend && npm run build      # writes frontend/dist
-docker compose up --build -d      # Postgres + Django (serving the built SPA)
-```
+
+cd frontend && npm run build     
+docker compose up --build -d      
+
+
 
 `docker compose` sets `DATABASE_URL`; the same image runs on any host that
 provides Postgres. Without `DATABASE_URL` the application falls back to SQLite,
 which is what local development and the test suite use.
 
-Environment variables :
+
 
  Variable | Purpose 
 
