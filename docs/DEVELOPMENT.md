@@ -194,20 +194,62 @@ make reset-db      # drop db.sqlite3, migrate, sync_rbac, seed
 ## Deployment
 
 ```bash
-cd frontend && npm run build
 docker compose up --build -d
 ```
 
-Checklist for production:
+The image builds the SPA itself (multi-stage Dockerfile), so a manual
+`npm run build` before deploying is no longer required — though it does no harm.
 
-1. `DJANGO_DEBUG=false`
-2. Set a real `DJANGO_SECRET_KEY` and keep it out of the image.
-3. Set `DJANGO_ALLOWED_HOSTS` and, behind a proxy, `DJANGO_CSRF_TRUSTED_ORIGINS`.
-4. Point `DATABASE_URL` at managed Postgres and run `manage.py migrate` +
-   `sync_rbac` as a release step.
-5. Serve over HTTPS — session and CSRF cookies become `Secure` automatically
-   once `DEBUG` is false.
-6. Take database backups. Financial history matters more than uptime.
+### First administrator
+
+Do **not** deploy with the demo accounts. `seed_demo_data` is development-only:
+it creates `admin`/`manager`/`accountant`/`reception`/`teacher.john`, all with the
+password `Demo12345!`. Never run it against a production database.
+
+Create the first real administrator with the dedicated command. It assigns the
+`super_admin` role as well as Django's superuser flag — `createsuperuser` alone
+leaves the account without an RBAC role, which makes the CRM unusable:
+
+```bash
+cd backend
+# non-interactive (CI, Ansible, a container shell):
+DJANGO_ADMIN_PASSWORD='<a long unique password>' \
+  python manage.py create_admin --username admin --email admin@example.uz --no-input
+
+# interactive (prompts twice, nothing in your shell history):
+python manage.py create_admin --username admin
+```
+
+The password is never accepted as a command-line argument. It is validated
+against Django's password validators, and the command is idempotent — re-running
+it for an existing username repairs the role and flags.
+
+### Release checklist
+
+1. `DJANGO_DEBUG=false`.
+2. Set a real `DJANGO_SECRET_KEY` (the app refuses to start without one, and
+   refuses known placeholder values). Never bake it into the image.
+3. Set `DJANGO_ALLOWED_HOSTS` to the real hostname(s); the app refuses to start
+   in production while it is still the localhost default.
+4. Set `DJANGO_CSRF_TRUSTED_ORIGINS` to your `https://` origin(s).
+5. Set `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_USER`. `docker compose`
+   interpolates the web service's `DATABASE_URL` from these, so the database
+   credentials cannot drift apart.
+6. Behind a TLS-terminating proxy, set `DJANGO_SECURE_PROXY=true` to enable
+   HSTS, `SECURE_SSL_REDIRECT`, and the `X-Forwarded-Proto` header. With it set,
+   `manage.py check --deploy` reports zero issues.
+7. Run `manage.py create_admin` (see above) after the first deploy.
+8. Take database backups. Financial history matters more than uptime.
+
+### Verifying a deployment
+
+`scripts/validate_postgres.sh` runs the production sequence (migrate → sync_rbac
+→ collectstatic → check → `check --deploy`) against a real PostgreSQL database.
+
+`scripts/validate_live.py` then drives a running production server over real
+HTTP: CSRF issuance and enforcement, login, the full role matrix (anonymous,
+administrator, teacher) and logout. Both are safe to run against a staging
+deployment.
 
 ## Conventions
 

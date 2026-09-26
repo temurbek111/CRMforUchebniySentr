@@ -1,0 +1,157 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same ref to save runner minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (Django tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: crm_ci
+          POSTGRES_USER: crm
+          POSTGRES_PASSWORD: crm_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U crm -d crm_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DJANGO_DEBUG: "true"
+      DJANGO_SECRET_KEY: ci-only-not-a-production-secret
+      # The suite also runs against PostgreSQL so engine-specific breakage
+      # (constraints, transactions, quoting) cannot hide behind SQLite.
+      DATABASE_URL: postgres://crm:crm_ci_password@127.0.0.1:5432/crm_ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Django system check
+        run: python manage.py check
+
+      - name: Migrations are complete (no missing migrations)
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Migrations apply from an empty database
+        run: python manage.py migrate --noinput
+
+      - name: Sync RBAC (permissions + roles)
+        run: python manage.py sync_rbac
+
+      - name: Run test suite (PostgreSQL)
+        run: python -m pytest -q
+
+      - name: Run test suite (SQLite fallback)
+        env:
+          DATABASE_URL: ""
+        run: python -m pytest -q
+
+  frontend:
+    name: Frontend (TypeScript + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Production build
+        run: npm run build
+
+      - name: Assert the bundle references the static URL prefix
+        # The SPA is served by Django/WhiteNoise in production; a build that
+        # emits /assets/... instead of /static/assets/... returns HTML where
+        # the browser expects JavaScript and the app silently fails to boot.
+        run: |
+          if grep -q 'src="/assets/' dist/index.html; then
+            echo "ERROR: dist/index.html references /assets/ instead of /static/assets/."
+            echo "Set Vite base to '/static/' for the production build."
+            exit 1
+          fi
+          if ! grep -q '/static/assets/' dist/index.html; then
+            echo "ERROR: dist/index.html does not reference /static/assets/."
+            exit 1
+          fi
+          echo "OK: bundle references /static/assets/."
+
+  docker:
+    name: Docker image build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: uchebniycrm:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test the image (migrate, check, health)
+        run: |
+          docker run -d --name crm-ci \
+            -e DJANGO_DEBUG=false \
+            -e DJANGO_SECRET_KEY=ci-docker-smoke-test-key-not-production \
+            -e DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1 \
+            -p 8000:8000 \
+            uchebniycrm:ci
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/api/health >/dev/null; then
+              echo "health OK"; break
+            fi
+            sleep 2
+          done
+          curl -sf http://127.0.0.1:8000/api/health
+          echo
+          curl -sf -o /dev/null http://127.0.0.1:8000/
+          echo "SPA served OK"
+          docker logs crm-ci | tail -20
