@@ -19,7 +19,7 @@ from apps.finance.services import (
     student_balance,
     void_payment,
 )
-from tests.factories import enroll, make_group, make_student
+from tests.factories import enroll, make_group, make_student, month_start
 
 pytestmark = pytest.mark.django_db
 
@@ -170,6 +170,54 @@ def test_financial_summary_separates_income_expenses_and_net(student_in_group):
     assert summary["student_fees"] == "1200000.00"
     assert summary["total_expenses"] == "400000.00"
     assert summary["net_result"] == "800000.00"
+
+
+def test_payroll_payable_sums_the_real_column_not_zero():
+    """Regression: payroll liabilities must not silently report as 0.00.
+
+    `payroll_payable()` aggregated `net_total`, but the field on PayrollRun is
+    `total_net`. That raised FieldError, which a blanket `except Exception`
+    swallowed and turned into ZERO - so the dashboard, /payroll/payable and the
+    payable report all under-reported teacher liabilities as nothing owed. The
+    test creates a run and asserts the figure is actually seen.
+    """
+    from apps.finance.services import payroll_payable
+    from apps.payroll.models import PayrollRun, PayrollStatus
+
+    _period_start = date(2026, 1, 1)
+    PayrollRun.objects.create(
+        label="Probe period",
+        period_start=_period_start,
+        period_end=_period_start + timedelta(days=29),
+        status=PayrollStatus.CALCULATED,
+        total_gross=Decimal("5000000.00"),
+        total_deductions=Decimal("500000.00"),
+        total_net=Decimal("4500000.00"),
+    )
+
+    assert payroll_payable() == Decimal("4500000.00")
+
+    # A paid run is no longer a liability and must drop out of the figure.
+    PayrollRun.objects.update(status=PayrollStatus.PAID)
+    assert payroll_payable() == Decimal("0.00")
+
+
+def test_payroll_payable_accepts_approved_runs_too():
+    """Both calculated and approved runs count as still owed."""
+    from apps.finance.services import payroll_payable
+    from apps.payroll.models import PayrollRun, PayrollStatus
+
+    _period_start = date(2026, 1, 1)
+    PayrollRun.objects.create(
+        label="Approved period",
+        period_start=_period_start,
+        period_end=_period_start + timedelta(days=29),
+        status=PayrollStatus.APPROVED,
+        total_gross=Decimal("2000000.00"),
+        total_deductions=Decimal("0.00"),
+        total_net=Decimal("2000000.00"),
+    )
+    assert payroll_payable() == Decimal("2000000.00")
 
 
 def test_money_is_decimal_not_float(student_in_group):

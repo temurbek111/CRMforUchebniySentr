@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from rest_framework.test import APIClient
 
-from apps.accounts.models import Role
+from apps.accounts.models import Role, User
 from apps.accounts.rbac import ALL_PERMISSIONS, Perm, navigation_for
 from tests.factories import make_user
 
@@ -123,6 +123,72 @@ def test_anonymous_access_is_rejected():
     assert client.get("/api/dashboard").status_code in (401, 403)
 
 
+def test_creating_a_user_with_extra_permissions_succeeds():
+    """Regression: user creation used to 500 when extra_permissions was sent.
+
+    `UserWriteSerializer.create` passed the many-to-many `extra_permissions`
+    straight into `User(**validated_data)`, which Django rejects with
+    "Direct assignment to the forward side of a many-to-many set is
+    prohibited" -> an unhandled TypeError -> HTTP 500. The Users screen sends
+    this field, so creating a user from the UI crashed the server.
+    """
+    from apps.accounts.models import Permission
+
+    admin_client = APIClient()
+    admin_client.force_authenticate(make_user("root.probe", None, is_superuser=True))
+
+    role = Role.objects.filter(code="teacher").first()
+    permission = Permission.objects.filter(code=Perm.AUDIT_VIEW).first()
+    if permission is None:
+        # Permission rows only exist after sync_rbac; create the one we need.
+        permission = Permission.objects.create(
+            code=Perm.AUDIT_VIEW, name="View audit log", module="Audit"
+        )
+
+    payload = {
+        "username": "with.extra.perms",
+        "first_name": "Extra",
+        "last_name": "Perms",
+        "role": role.pk if role else None,
+        "is_active": True,
+        "password": "Extra-Perms-Pw-2026!",
+        "extra_permissions": [permission.pk],
+    }
+    response = admin_client.post("/api/users/", payload, format="json")
+    assert response.status_code == 201, response.content
+    # The write endpoint answers with the write serializer, which does not carry
+    # the computed permission list - assert against the persisted row instead.
+    created = User.objects.get(username="with.extra.perms")
+    assert Perm.AUDIT_VIEW in created.extra_permission_codes()
+
+
+def test_updating_a_users_extra_permissions_succeeds():
+    """The same many-to-many handling must work on update, not just create."""
+    from apps.accounts.models import Permission
+
+    admin_client = APIClient()
+    admin_client.force_authenticate(make_user("root.probe2", None, is_superuser=True))
+    target = make_user("edit.target", "teacher")
+
+    permission, _ = Permission.objects.get_or_create(
+        code=Perm.AUDIT_VIEW, defaults={"name": "View audit log", "module": "Audit"}
+    )
+    response = admin_client.patch(
+        f"/api/users/{target.pk}/", {"extra_permissions": [permission.pk]}, format="json"
+    )
+    assert response.status_code == 200, response.content
+    target.refresh_from_db()
+    assert Perm.AUDIT_VIEW in target.extra_permission_codes()
+
+    # Removing them again must also work (same many-to-many path).
+    response = admin_client.patch(
+        f"/api/users/{target.pk}/", {"extra_permissions": []}, format="json"
+    )
+    assert response.status_code == 200, response.content
+    target.refresh_from_db()
+    assert target.extra_permission_codes() == set()
+
+
 def test_health_endpoint_is_public():
     client = APIClient()
     response = client.get("/api/health")
@@ -130,31 +196,78 @@ def test_health_endpoint_is_public():
     assert response.json()["status"] == "ok"
 
 
-def test_role_permissions_in_the_database_do_not_yet_drive_enforcement():
-    """CHARACTERISATION TEST - pins a real inconsistency, found while building
-    the /settings/roles admin screen.
+def test_role_permission_edits_actually_change_enforcement():
+    """The Roles screen is authoritative, not decorative.
 
-    `PATCH /api/roles/{id}/` lets an administrator replace a role's whole
-    permission set, and `Role.permissions` stores it faithfully. But
-    authorization reads `ROLE_MATRIX` from apps/accounts/rbac.py
-    (`permissions_for_role` -> `User.permission_codes` -> `RequirePerms`), and
-    never looks at the database rows. So a saved role edit does not change what
-    anybody may actually do, and the admin screen would be a convincing lie.
+    This test used to be a CHARACTERISATION test pinning a real inconsistency:
+    `PATCH /api/roles/{id}/` stored a role's permission set faithfully, but
+    authorisation read `ROLE_MATRIX` from rbac.py and never the database rows, so
+    a saved role edit changed nothing and the admin screen was a convincing lie.
 
-    This test asserts today's behaviour on purpose: stripping every permission
-    from a role row leaves the role's access completely intact. When the two
-    sources are reconciled, this test MUST start failing - that failure is the
-    signal to rewrite it to assert the database is authoritative.
+    `permissions_for_role` now reads the role rows (cached, invalidated on
+    write), so editing a role changes what its users may do. These assertions
+    replace the old ones on purpose - they fail if the two sources ever drift
+    apart again.
     """
-    role, _ = Role.objects.get_or_create(code="manager", defaults={"name": "Manager"})
-    role.permissions.clear()          # strip the role row of every permission
-    assert role.permission_codes() == set()
+    from django.core.management import call_command
 
-    manager = make_user("mgr.stripped", "manager")
+    from apps.accounts.rbac import Perm, effective_permissions
 
-    # Enforcement is unaffected, because it never reads the row we just emptied.
-    assert Perm.STUDENTS_VIEW in manager.permission_codes()
+    # Seed the rows the way production does, so the role actually holds a set.
+    call_command("sync_rbac", verbosity=0)
+    role = Role.objects.get(code="manager")
+    assert Perm.STUDENTS_VIEW in role.permission_codes()
+
+    manager = make_user("mgr.edited", "manager")
+    assert Perm.STUDENTS_VIEW in effective_permissions(manager)
+
+    # Revoke exactly one permission through the role row.
+    role.permissions.remove(role.permissions.get(code=Perm.STUDENTS_VIEW))
+    role.refresh_from_db()
+    manager.refresh_from_db()
+
+    assert Perm.STUDENTS_VIEW not in effective_permissions(manager)
+
     client = APIClient()
     client.force_authenticate(manager)
-    assert client.get("/api/students/").status_code == 200
+    assert client.get("/api/students/").status_code == 403
+    # Everything else the role still holds is untouched.
     assert client.get("/api/dashboard").status_code == 200
+
+
+def test_granting_a_permission_the_matrix_denies_takes_effect():
+    """An extra grant on a role is honoured, not silently ignored."""
+    from django.core.management import call_command
+
+    from apps.accounts.rbac import Perm, effective_permissions
+    from apps.accounts.models import Permission
+
+    call_command("sync_rbac", verbosity=0)
+    role = Role.objects.get(code="receptionist")
+
+    receptionist = make_user("rec.edited", "receptionist")
+    assert Perm.PAYROLL_VIEW not in effective_permissions(receptionist)
+
+    role.permissions.add(Permission.objects.get(code=Perm.PAYROLL_VIEW))
+    role.refresh_from_db()
+    receptionist.refresh_from_db()
+
+    assert Perm.PAYROLL_VIEW in effective_permissions(receptionist)
+
+
+def test_an_unseeded_role_still_falls_back_to_the_matrix():
+    """A migrated-but-unseeded role must not lock everybody out.
+
+    The test database has Role rows with no permissions unless `sync_rbac` is
+    run. Reading the rows naively would grant nothing and turn every request
+    into a 403, so an entirely empty role falls back to the canonical matrix.
+    """
+    from apps.accounts.rbac import Perm, effective_permissions
+
+    role, _ = Role.objects.get_or_create(code="teacher", defaults={"name": "Teacher"})
+    role.permissions.clear()
+    role.refresh_from_db()
+    assert role.permission_codes() == set()
+
+    teacher = make_user("t.unseeded", "teacher")
+    assert Perm.ATTENDANCE_VIEW in effective_permissions(teacher)
