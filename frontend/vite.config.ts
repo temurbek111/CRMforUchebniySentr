@@ -13,7 +13,7 @@ import react from '@vitejs/plugin-react';
  */
 const DJANGO_ORIGIN = 'http://127.0.0.1:8000';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
   server: {
     port: 5173,
@@ -32,5 +32,14 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false,
     chunkSizeWarningLimit: 900,
+    // Asset URLs are emitted as /static/assets/... so the bundle is served by
+    // WhiteNoise from STATIC_ROOT in production (Django's `static/` mount).
+    // With the default base ('/') the built index.html requests /assets/...,
+    // which the SPA catch-all route answers with index.html - the browser ends
+    // up with HTML where it expects JavaScript, and the app never boots.
+    assetsDir: 'assets',
   },
-});
+  // The dev server keeps serving from '/', because Vite serves the module
+  // graph itself; only the production bundle needs the static prefix.
+  base: mode === 'production' ? '/static/' : '/',
+}));

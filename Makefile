@@ -1,4 +1,4 @@
-.PHONY: help venv install migrate rbac alerts seed run run-lan frontend-install frontend-dev frontend-build frontend-check dev-check backend-check check test test-fast docker-up docker-down reset-db
+.PHONY: help venv install migrate rbac alerts seed create-admin run run-lan frontend-install frontend-dev frontend-build frontend-check dev-check backend-check check test test-fast docker-up docker-down reset-db
 
 PY := .venv/bin/python
 PIP := .venv/bin/python -m
@@ -10,6 +10,7 @@ help:
 	@echo "  make migrate           Apply database migrations"
 	@echo "  make rbac              Sync roles and permissions with the RBAC matrix"
 	@echo "  make seed              Load realistic demo data (safe to re-run)"
+	@echo "  make create-admin      Create the first administrator (prompts for a password)"
 	@echo "  make run               Run the Django development server on 127.0.0.1:8000"
 	@echo "  make run-lan           Same, but bound to 0.0.0.0 for LAN access (do not browse to it)"
 	@echo "  make test              Run the backend test suite"
@@ -39,6 +40,11 @@ alerts:
 
 seed:
 	cd backend && ../$(PY) manage.py seed_demo_data
+
+# Create the first administrator. Reads the password from the environment when
+# set, otherwise prompts interactively - it is never passed as an argument.
+create-admin:
+	cd backend && ../$(PY) manage.py create_admin
 
 run:
 	cd backend && ../$(PY) manage.py runserver 127.0.0.1:8000

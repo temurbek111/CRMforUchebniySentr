@@ -30,7 +30,12 @@ urlpatterns = [
 # Built SPA (frontend/dist) is served by Django outside DEBUG as well, so a
 # single process can host the whole product. In DEBUG the Vite dev server is
 # used instead and proxies /api here.
-urlpatterns += [re_path(r"^(?!api/|admin/|static/|media/).*$", spa_index)]
+#
+# `assets/` is excluded alongside `static/`: the Vite bundle emits /static/
+# URLs, but an older or hand-built bundle may still request /assets/... -
+# answering that with index.html would hand the browser HTML where it expects
+# JavaScript. A 404 is loud and debuggable; a wrong 200 is not.
+urlpatterns += [re_path(r"^(?!api/|admin/|static/|assets/|media/).*$", spa_index)]
 
 if settings.DEBUG:
     from django.conf.urls.static import static

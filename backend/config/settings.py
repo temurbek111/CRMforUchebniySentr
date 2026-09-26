@@ -215,7 +215,11 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = REPO_ROOT / "staticfiles"
-STATICFILES_DIRS = [d for d in [FRONTEND_DIST / "assets"] if d.exists()]
+# The built SPA is collected under the same static prefix the bundle references
+# (Vite `base: '/static/'`), so /static/assets/<hashed>.js resolves to the file
+# WhiteNoise copied out of frontend/dist. Pointing at dist itself - not at
+# dist/assets - keeps the `assets/` segment in the collected path.
+STATICFILES_DIRS = [d for d in [FRONTEND_DIST] if d.exists()]
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {
