@@ -102,19 +102,29 @@ class UserWriteSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
+        # `extra_permissions` is a many-to-many field: Django refuses to accept
+        # it as a constructor argument, so it must be popped and applied after
+        # the row exists. Passing it straight into User(**...) raised
+        # TypeError -> HTTP 500 for any user created with extra permissions.
+        extra_permissions = validated_data.pop("extra_permissions", None)
         password = validated_data.pop("password")
         user = User(**validated_data)
         user.set_password(password)
         user.save()
+        if extra_permissions is not None:
+            user.extra_permissions.set(extra_permissions)
         return user
 
     def update(self, instance, validated_data):
+        extra_permissions = validated_data.pop("extra_permissions", None)
         password = validated_data.pop("password", None)
         for key, value in validated_data.items():
             setattr(instance, key, value)
         if password:
             instance.set_password(password)
         instance.save()
+        if extra_permissions is not None:
+            instance.extra_permissions.set(extra_permissions)
         return instance
 
 

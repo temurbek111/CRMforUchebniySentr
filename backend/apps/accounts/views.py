@@ -7,7 +7,9 @@ from django.db import transaction
 from django.middleware.csrf import get_token
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
+from rest_framework.authentication import CSRFCheck
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -39,11 +41,35 @@ class CsrfView(APIView):
         return Response({"csrfToken": get_token(request)})
 
 
+def enforce_csrf(request) -> None:
+    """Run Django's CSRF check on a DRF request that bypasses it.
+
+    DRF marks its views csrf_exempt, and its SessionAuthentication only checks
+    CSRF for already-authenticated requests. Anonymous state-changing endpoints
+    (login above all) therefore need the check run explicitly.
+    """
+    check = CSRFCheck(lambda _request: None)
+    check.process_request(request)
+    reason = check.process_view(request, None, (), {})
+    if reason:
+        raise PermissionDenied(f"CSRF Failed: {reason}")
+
+
 class LoginView(APIView):
     permission_classes = [AllowAny]
     authentication_classes: list = []
 
     def post(self, request):
+        # Login CSRF defence.
+        #
+        # DRF only runs CSRF validation inside SessionAuthentication, and that
+        # only fires for requests that are *already* authenticated. An
+        # anonymous POST therefore reaches this view with no CSRF check at all
+        # (DRF APIViews are csrf_exempt, so Django's middleware skips them too).
+        # Without this, a hostile page could silently POST a login form and
+        # force a visitor into an attacker-controlled session.
+        enforce_csrf(request)
+
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = authenticate(
@@ -201,11 +227,29 @@ class UserViewSet(viewsets.ModelViewSet):
             user.set_password(serializer.validated_data["new_password"])
             user.last_password_change = timezone.now()
             user.save(update_fields=["password", "last_password_change"])
+            # Clear the target's server-side sessions: a password reset must
+            # revoke any access an attacker may already hold with the old
+            # password, not just change the credential for future logins.
+            sessions_ended = self._flush_user_sessions(user)
         log_action(
             AuditLog.Action.PERMISSION, "user", entity_id=user.pk, actor=request.user,
-            summary=f"Reset password for {user.username}", request=request,
+            summary=f"Reset password for {user.username} ({sessions_ended} session(s) ended)",
+            request=request,
         )
         return Response({"detail": f"Password reset for {user.username}."})
+
+    @staticmethod
+    def _flush_user_sessions(user) -> int:
+        """Delete every session row belonging to ``user``. Returns the count."""
+        from django.contrib.sessions.models import Session
+
+        count = 0
+        for session in Session.objects.all():
+            data = session.get_decoded()
+            if data.get("_auth_user_id") == str(user.pk):
+                session.delete()
+                count += 1
+        return count
 
     @action(detail=True, methods=["post"], url_path="toggle-active")
     def toggle_active(self, request, pk=None):
@@ -218,10 +262,16 @@ class UserViewSet(viewsets.ModelViewSet):
             )
         user.is_active = not user.is_active
         user.save(update_fields=["is_active"])
+        # Deactivating an account must end its live sessions immediately;
+        # otherwise a disabled user keeps browsing until the cookie expires.
+        sessions_ended = 0 if user.is_active else self._flush_user_sessions(user)
         log_action(
             AuditLog.Action.PERMISSION, "user", entity_id=user.pk, actor=request.user,
             new={"is_active": user.is_active},
-            summary=f"{'Activated' if user.is_active else 'Deactivated'} user {user.username}",
+            summary=(
+                f"{'Activated' if user.is_active else 'Deactivated'} user {user.username}"
+                + (f" ({sessions_ended} session(s) ended)" if sessions_ended else "")
+            ),
             request=request,
         )
         return Response(UserSerializer(user).data)

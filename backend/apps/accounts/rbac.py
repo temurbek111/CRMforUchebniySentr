@@ -225,9 +225,49 @@ ROLE_DESCRIPTIONS: dict[str, str] = {
 
 
 def permissions_for_role(role_code: str | None) -> frozenset[str]:
+    """Effective permission codes for a role, read from the database.
+
+    The database is authoritative: the Roles screen lets an administrator edit a
+    role's permissions, and those edits must actually change what people may do.
+    `ROLE_MATRIX` remains the canonical *default* - it seeds the rows
+    (`sync_rbac`, `Role.sync_from_matrix`) and is the fallback for a role that
+    has no row yet.
+
+    This deliberately does NOT cache across requests. Gunicorn runs several
+    worker processes; a process-local cache cannot be invalidated by a sibling
+    worker, so a permission revoked in one worker would stay granted in another
+    until it restarted. The lookup is two indexed reads against a table of five
+    rows, so correctness is worth far more than the saved queries.
+
+    """
     if not role_code:
         return frozenset()
-    return ROLE_MATRIX.get(role_code, frozenset())
+
+    codes: frozenset[str] = ROLE_MATRIX.get(role_code, frozenset())
+    try:
+        from .models import Role
+
+        role = Role.objects.filter(code=role_code).first()
+        if role is not None:
+            row_codes = frozenset(role.permission_codes())
+            # The database wins when it says something. A role row with no
+            # permissions at all falls back to the canonical matrix: that is the
+            # state of every role in a database that has been migrated but never
+            # had `sync_rbac` run (notably the test suite), and treating it as
+            # "this role may do nothing" would lock every user out.
+            #
+            # An administrator who wants a role stripped of all access removes
+            # the individual permissions; the matrix default only applies while
+            # the row is completely empty.
+            if row_codes or not codes:
+                codes = row_codes
+    except Exception:
+        # A role lookup must never be able to break authorisation -- if the
+        # database is unavailable mid-request, fall back to the canonical matrix
+        # rather than granting nothing (which would make the whole app 403).
+        codes = ROLE_MATRIX.get(role_code, frozenset())
+
+    return codes
 
 
 def effective_permissions(user) -> frozenset[str]:

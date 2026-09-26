@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent          # backend/
@@ -37,10 +38,46 @@ def env_list(name: str, default: str = "") -> list[str]:
 # --------------------------------------------------------------------------- #
 # Core
 # --------------------------------------------------------------------------- #
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-only-insecure-secret-key")
 DEBUG = env_bool("DJANGO_DEBUG", True)
+
+# Fail fast, loudly, and only in production.
+#
+# In DEBUG a throwaway key is fine and keeps `git clone && make run` working with
+# zero setup. Outside DEBUG there is no safe default: a predictable SECRET_KEY
+# lets anyone forge session cookies and password-reset tokens, so a missing or
+# placeholder key is a hard startup error rather than a silent downgrade.
+_INSECURE_SECRET_DEFAULTS = {
+    "dev-only-insecure-secret-key",
+    "dev-only-change-me",
+    "change-me-in-production",
+    "changeme",
+    "secret",
+    "",
+}
+
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "").strip()
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = "dev-only-insecure-secret-key"
+    else:
+        raise ImproperlyConfigured(
+            "DJANGO_SECRET_KEY must be set when DJANGO_DEBUG is false. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+        )
+elif not DEBUG and SECRET_KEY in _INSECURE_SECRET_DEFAULTS:
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY is set to a known placeholder value. Replace it with a "
+        "unique random secret before running in production."
+    )
+
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,testserver")
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
+
+if not DEBUG and ALLOWED_HOSTS == ["localhost", "127.0.0.1", "testserver"]:
+    raise ImproperlyConfigured(
+        "DJANGO_ALLOWED_HOSTS is still the development default. Set it to the "
+        "hostname(s) the application is actually served from in production."
+    )
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -206,6 +243,24 @@ SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
+
+# --------------------------------------------------------------------------- #
+# TLS termination (opt-in)
+#
+# The application is expected to sit behind a reverse proxy (Cloudflare, nginx,
+# Traefik) that terminates TLS. Turn these on with DJANGO_SECURE_PROXY=true once
+# the proxy sets X-Forwarded-Proto: https. They stay off by default so the
+# documented plain-HTTP docker-compose stack keeps working out of the box.
+# --------------------------------------------------------------------------- #
+if env_bool("DJANGO_SECURE_PROXY", False):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", True)
+    SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_HSTS_SECONDS", "31536000"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_REFERRER_POLICY = "same-origin"
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_SECURE = True
 
 # Uploads: meetings/documents stay small and validated at the form layer.
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
