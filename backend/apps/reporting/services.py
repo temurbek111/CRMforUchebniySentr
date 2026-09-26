@@ -914,11 +914,36 @@ def payroll_payable_report() -> dict:
 # --------------------------------------------------------------------------- #
 # Global search
 # --------------------------------------------------------------------------- #
-def global_search(query: str, *, limit: int = 6, restrict: dict | None = None) -> dict:
-    """Search across every major entity. ``restrict`` narrows results for teachers."""
+def global_search(
+    query: str,
+    *,
+    limit: int = 6,
+    restrict: dict | None = None,
+    permissions: frozenset[str] | None = None,
+) -> dict:
+    """Search across every major entity.
+
+    ``restrict`` narrows student/group results for teachers. ``permissions`` is
+    the caller's effective permission set and gates the sensitive blocks:
+
+    * payments require ``invoices.view`` - teachers hold no financial
+      permission, and returning receipt numbers and amounts to them leaked
+      money data.
+    * leads require ``leads.view`` - the CRM pipeline is not visible to staff
+      without it.
+
+    When ``permissions`` is None (internal callers such as a management command)
+    the sensitive blocks are included, preserving previous behaviour for code
+    that has already established its own authorisation.
+    """
+    from apps.accounts.rbac import Perm
+
     query = (query or "").strip()
     if len(query) < 2:
         return {"query": query, "results": {}, "total": 0}
+
+    def allowed(code: str) -> bool:
+        return permissions is None or code in permissions
 
     students = Student.objects.filter(
         Q(first_name__icontains=query) | Q(last_name__icontains=query)
@@ -950,34 +975,36 @@ def global_search(query: str, *, limit: int = 6, restrict: dict | None = None) -
     course_rows = courses.values("id", "name", "code")[:limit]
 
     payments = []
-    try:
-        from apps.finance.models import Payment
+    if allowed(Perm.INVOICES_VIEW):
+        try:
+            from apps.finance.models import Payment
 
-        payments = [
-            {
-                "id": payment.pk, "receipt": payment.receipt_number,
-                "amount": str(payment.amount), "student": payment.student_id,
-                "student_name": payment.student.full_name, "date": payment.paid_at,
-            }
-            for payment in Payment.objects.select_related("student").filter(
-                Q(reference__icontains=query) | Q(student__first_name__icontains=query)
-                | Q(student__last_name__icontains=query) | Q(student__code__icontains=query)
-            )[:limit]
-        ]
-    except Exception:  # pragma: no cover
-        pass
+            payments = [
+                {
+                    "id": payment.pk, "receipt": payment.receipt_number,
+                    "amount": str(payment.amount), "student": payment.student_id,
+                    "student_name": payment.student.full_name, "date": payment.paid_at,
+                }
+                for payment in Payment.objects.select_related("student").filter(
+                    Q(reference__icontains=query) | Q(student__first_name__icontains=query)
+                    | Q(student__last_name__icontains=query) | Q(student__code__icontains=query)
+                )[:limit]
+            ]
+        except Exception:  # pragma: no cover
+            pass
 
     leads = []
-    try:
-        from apps.crm.models import Lead
+    if allowed(Perm.LEADS_VIEW):
+        try:
+            from apps.crm.models import Lead
 
-        leads = list(
-            Lead.objects.filter(
-                Q(full_name__icontains=query) | Q(phone__icontains=query) | Q(email__icontains=query)
-            ).values("id", "full_name", "phone", "status")[:limit]
-        )
-    except Exception:  # pragma: no cover
-        pass
+            leads = list(
+                Lead.objects.filter(
+                    Q(full_name__icontains=query) | Q(phone__icontains=query) | Q(email__icontains=query)
+                ).values("id", "full_name", "phone", "status")[:limit]
+            )
+        except Exception:  # pragma: no cover
+            pass
 
     results = {
         "students": [

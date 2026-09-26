@@ -11,7 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.rbac import Perm, RequirePerms
+from apps.accounts.rbac import Perm, RequirePerms, effective_permissions
 
 from . import services
 
@@ -117,7 +117,14 @@ class ReportExportView(APIView):
 
 
 class SearchView(APIView):
-    """Global search. Teachers only see their own students and groups."""
+    """Global search.
+
+    Teachers only see their own students and groups, and every caller only
+    receives the sensitive blocks they hold permission for: payments require
+    ``invoices.view`` and leads require ``leads.view``. Without this the search
+    box returned receipt numbers, amounts and lead contact details to staff who
+    hold no finance or CRM permission.
+    """
 
     permission_classes = [IsAuthenticated]
 
@@ -127,7 +134,13 @@ class SearchView(APIView):
         if request.user.role_code == "teacher":
             teacher = getattr(request.user, "teacher_profile", None)
             restrict = {"teacher_id": teacher.pk if teacher else -1}
-        return Response(services.global_search(query, restrict=restrict))
+        return Response(
+            services.global_search(
+                query,
+                restrict=restrict,
+                permissions=effective_permissions(request.user),
+            )
+        )
 
 
 @api_view(["GET"])

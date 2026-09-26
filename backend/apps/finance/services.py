@@ -614,16 +614,25 @@ def todays_collections(day: date | None = None) -> Decimal:
 
 
 def payroll_payable() -> Decimal:
-    """Amount still owed to teachers: approved but unpaid payroll runs."""
-    try:
-        from apps.payroll.models import PayrollRun, PayrollStatus
+    """Amount still owed to teachers: calculated or approved but unpaid runs.
 
-        return (
-            PayrollRun.objects.filter(status__in=[PayrollStatus.CALCULATED, PayrollStatus.APPROVED])
-            .aggregate(total=Sum("net_total"))["total"] or ZERO
-        )
-    except Exception:  # pragma: no cover - payroll app not installed
+    The field is ``total_net`` (see payroll/models.py). An earlier version summed
+    ``net_total``, which does not exist, and swallowed the resulting FieldError
+    in a blanket ``except Exception`` - so this returned 0.00 no matter how much
+    was actually owed. The dashboard, /payroll/payable and the payable report all
+    read this figure, so the liability silently reported as zero.
+    """
+    try:
+        from apps.payroll.models import PayrollRun, PayrollStatus  # noqa: PLC0415
+    except ImportError:  # payroll app not installed
         return ZERO
+
+    total = (
+        PayrollRun.objects.filter(
+            status__in=[PayrollStatus.CALCULATED, PayrollStatus.APPROVED]
+        ).aggregate(total=Sum("total_net"))["total"]
+    )
+    return total or ZERO
 
 
 def range_last_days(days: int, *, end: date | None = None) -> tuple[date, date]:
