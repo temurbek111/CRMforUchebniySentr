@@ -214,12 +214,47 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
-STATIC_ROOT = REPO_ROOT / "staticfiles"
+
+# Where collected static files go, and where uploads live.
+#
+# These default to the repository root, which is what local development, the
+# test suite and the Docker image have always used:
+#
+#     repo/staticfiles        repo/media
+#
+# Hosting platforms that build each part of a monorepo in isolation (Vercel
+# Services gives the backend service its own root of backend/) cannot write to
+# the repository root, because that path resolves outside the service. Both
+# locations are therefore overridable so a platform can point them at a
+# directory inside the service without changing any application behaviour.
+#
+# An absolute path is used as given. A relative one is resolved against the
+# backend directory (the service root), because that is the directory the
+# process is rooted in and the only one a hosting platform guarantees it may
+# write to. This is why `DJANGO_STATIC_ROOT=staticfiles` means
+# `backend/staticfiles`, not `repo/staticfiles`.
+def _rooted(name: str, default: str) -> Path:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return REPO_ROOT / default
+    candidate = Path(raw)
+    return candidate if candidate.is_absolute() else BASE_DIR / candidate
+
+
+STATIC_ROOT = _rooted("DJANGO_STATIC_ROOT", "staticfiles")
 # The built SPA is collected under the same static prefix the bundle references
 # (Vite `base: '/static/'`), so /static/assets/<hashed>.js resolves to the file
-# WhiteNoise copied out of frontend/dist. Pointing at dist itself - not at
-# dist/assets - keeps the `assets/` segment in the collected path.
-STATICFILES_DIRS = [d for d in [FRONTEND_DIST] if d.exists()]
+# the static handler copied out of the frontend build. Pointing at the build
+# directory itself - not at its assets/ subdirectory - keeps the `assets/`
+# segment in the collected path.
+#
+# DJANGO_FRONTEND_DIST lets a platform that builds the frontend separately (and
+# so has no sibling frontend/dist) point at whatever directory it produced. A
+# missing directory is not an error: the SPA route reports it clearly instead
+# (see config/views.py), which is what keeps the API bootable without it.
+_FRONTEND_DIST = _rooted("DJANGO_FRONTEND_DIST", "frontend/dist")
+FRONTEND_DIST = _FRONTEND_DIST
+STATICFILES_DIRS = [d for d in [_FRONTEND_DIST] if d.exists()]
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {
@@ -232,7 +267,7 @@ STORAGES = {
 }
 
 MEDIA_URL = "media/"
-MEDIA_ROOT = REPO_ROOT / "media"
+MEDIA_ROOT = _rooted("DJANGO_MEDIA_ROOT", "media")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

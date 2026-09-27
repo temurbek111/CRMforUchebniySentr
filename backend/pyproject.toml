@@ -25,3 +25,14 @@ testpaths = ["apps", "tests"]
 python_files = ["test_*.py", "tests.py"]
 addopts = "-q --tb=short"
 filterwarnings = ["error::DeprecationWarning:apps.*"]
+
+# Hosting metadata read by Vercel when this directory is deployed as a service.
+#
+# `entrypoint` is pinned rather than auto-detected: settings.py defines both
+# WSGI_APPLICATION and ASGI_APPLICATION, and Vercel prefers the ASGI entrypoint
+# when both are present. Pinning WSGI keeps the deployed entrypoint the same one
+# Gunicorn uses in Docker and the same one the CI suite exercises, so there is
+# exactly one entry path to reason about.
+[tool.vercel]
+entrypoint = "config.wsgi:application"
+

@@ -244,6 +244,8 @@ scripts/ui-verify/run.sh     # Chromium, three viewports, fails on console error
 
 ## Production deployment
 
+### Docker (self-hosted, any host with Docker)
+
 1. Provision PostgreSQL and set `DATABASE_URL`.
 2. Set `DJANGO_DEBUG=false`, `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`,
    `DJANGO_CSRF_TRUSTED_ORIGINS`.
@@ -255,6 +257,83 @@ scripts/ui-verify/run.sh     # Chromium, three viewports, fails on console error
 8. Back up the database. Financial history matters more than uptime.
 
 The full release checklist is in `docs/DEVELOPMENT.md`.
+
+### Vercel (one project, one domain)
+
+The repository deploys as a single Vercel project using **Vercel Services**:
+the frontend and the Django backend are built separately but share one domain,
+routed by the root `vercel.json`.
+
+```
+vercel.json
+  services.frontend  root: frontend/   framework: vite
+  services.backend   root: backend/    framework: django
+                     entrypoint: config.wsgi:application
+  rewrites
+    /api/(.*)     -> backend
+    /admin/(.*)   -> backend
+    /static/(.*)  -> backend
+    /(.*)         -> frontend
+```
+
+`/static/*` routes to the backend because the Vite build uses `base: '/static/'`
+(see `frontend/vite.config.ts`), so the SPA's own JavaScript and CSS are served
+from Django's collected static files. Routing them to the frontend would 404 the
+bundle.
+
+**Setup**
+
+1. Import the repository into Vercel. Leave **Root Directory** as the repository
+   root — the services declare their own roots, so do *not* set it to `backend/`.
+2. Set the project framework to **Services** (Build & Deployment settings). A
+   project builds as services only when that is selected *and* a `services` key
+   is present in `vercel.json`.
+3. Add environment variables for **Production** (and Preview if you use it):
+
+   | Variable | Value |
+   |---|---|
+   | `DJANGO_DEBUG` | `false` |
+   | `DJANGO_SECRET_KEY` | a unique random secret |
+   | `DJANGO_ALLOWED_HOSTS` | `your-project.vercel.app,your-domain.com` |
+   | `DJANGO_CSRF_TRUSTED_ORIGINS` | `https://your-project.vercel.app,https://your-domain.com` |
+   | `DJANGO_TIME_ZONE` | `Asia/Tashkent` |
+   | `DATABASE_URL` | the Supabase pooler connection string |
+   | `DJANGO_SECURE_PROXY` | `true` (Vercel terminates TLS) |
+   | `DJANGO_STATIC_ROOT` | `staticfiles` |
+   | `DJANGO_MEDIA_ROOT` | `media` |
+
+   `DJANGO_STATIC_ROOT` and `DJANGO_MEDIA_ROOT` matter on Vercel: each service is
+   built in its own root, so the historical repository-root paths
+   (`repo/staticfiles`, `repo/media`) would point outside the backend service.
+   A relative value resolves against `backend/`, keeping every write inside the
+   service. Absent, both default to the repository root, which is what local
+   development and Docker use — so this changes nothing off Vercel.
+
+4. Deploy. Vercel runs `collectstatic` automatically when `STATIC_ROOT` is set;
+   do not call it from a build script.
+5. Create the first administrator against the production database — locally,
+   with `DATABASE_URL` pointing at Supabase:
+
+   ```
+   DJANGO_DEBUG=false DJANGO_SECRET_KEY=<secret> \
+   DATABASE_URL='<supabase-url>' \
+   python manage.py create_admin --username admin
+   ```
+
+   Or from any environment that can reach the database. The command is
+   idempotent and never takes the password as an argument.
+
+**Notes**
+
+- `DATABASE_URL` is passed through unchanged, so PostgreSQL support is
+  unchanged. Any managed PostgreSQL (including Supabase) works; use the
+  connection-pooler URL for serverless.
+- The backend serves its API without a sibling `frontend/dist` — the SPA route
+  reports a clear 503 if the bundle is missing, so a frontend build failure
+  cannot take the API down.
+- `scripts/validate_vercel_service.py` reproduces the isolated-service layout
+  locally (backend only, no sibling frontend, storage inside the service root)
+  and asserts the API, health endpoint and `/static/` route all work.
 
 ---
 
