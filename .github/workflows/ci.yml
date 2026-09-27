@@ -37,6 +37,14 @@ jobs:
     env:
       DJANGO_DEBUG: "true"
       DJANGO_SECRET_KEY: ci-only-not-a-production-secret
+      # Required explicitly: pytest-django reads DJANGO_SETTINGS_MODULE from
+      # pytest.ini, but collection can fail before that configuration applies.
+      # Setting it here makes settings resolution deterministic and independent
+      # of which pytest plugins are present.
+      DJANGO_SETTINGS_MODULE: config.settings
+      # Working directory is backend/, so this puts the repository's import root
+      # (config, apps, tests) on sys.path for pytest collection.
+      PYTHONPATH: .
       # The suite also runs against PostgreSQL so engine-specific breakage
       # (constraints, transactions, quoting) cannot hide behind SQLite.
       DATABASE_URL: postgres://crm:crm_ci_password@127.0.0.1:5432/crm_ci
@@ -54,7 +62,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest
+          # pytest-django is what consumes pytest.ini's DJANGO_SETTINGS_MODULE
+          # and django_db markers; without it the suite cannot run.
+          pip install pytest pytest-django
 
       - name: Django system check
         run: python manage.py check
