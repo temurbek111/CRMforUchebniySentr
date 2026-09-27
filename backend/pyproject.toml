@@ -2,7 +2,7 @@
 name = "uchebniycrm-backend"
 version = "1.0.0"
 description = "Learning Centre CRM - academic management and finance backend"
-requires-python = ">=3.13"
+requires-python = ">=3.13,<3.14"
 dependencies = [
     "django>=5.1,<5.3",
     "djangorestframework>=3.15",
