@@ -12,7 +12,8 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, DecimalField, Q, Sum, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from apps.academics.models import Group, Student
@@ -144,8 +145,22 @@ def recalculate_invoice_status(invoice: StudentInvoice) -> StudentInvoice:
     return invoice
 
 
-def invoice_summary(invoice: StudentInvoice) -> dict:
-    paid = invoice.amount_paid
+def invoice_summary(invoice: StudentInvoice, *, paid=None, remaining=None,
+                    days_overdue=None) -> dict:
+    """Serialise an invoice. Callers that already computed the derived amounts pass
+    them in so this never issues a hidden ``SUM`` per row.
+
+    When ``paid``/``remaining``/``days_overdue`` are omitted the model properties are
+    used, which is correct for a single invoice but costs one query each.
+    """
+    if paid is None:
+        paid = invoice.amount_paid
+    if remaining is None:
+        remaining = invoice.remaining
+    if days_overdue is None:
+        days_overdue = invoice.days_overdue
+    credit = paid - invoice.amount_due
+    credit = credit if credit > ZERO else ZERO
     return {
         "id": invoice.pk,
         "student": invoice.student_id,
@@ -158,14 +173,25 @@ def invoice_summary(invoice: StudentInvoice) -> dict:
         "period_end": invoice.period_end,
         "amount_due": str(invoice.amount_due),
         "amount_paid": str(paid),
-        "remaining": str(invoice.remaining),
-        "credit": str(invoice.credit),
-        "status": invoice.display_status,
-        "status_label": InvoiceStatus(invoice.display_status).label,
+        "remaining": str(remaining),
+        "credit": str(credit),
+        "status": _display_status_from(invoice, paid, remaining),
+        "status_label": InvoiceStatus(_display_status_from(invoice, paid, remaining)).label,
         "due_date": invoice.due_date,
-        "days_overdue": invoice.days_overdue,
+        "days_overdue": days_overdue,
         "notes": invoice.notes,
     }
+
+
+def _display_status_from(invoice: StudentInvoice, paid: Decimal, remaining: Decimal) -> str:
+    """``StudentInvoice.display_status`` reproduced from precomputed amounts."""
+    if invoice.status in {InvoiceStatus.WAIVED, InvoiceStatus.CANCELLED}:
+        return invoice.status
+    if remaining <= ZERO:
+        return InvoiceStatus.PAID
+    if invoice.due_date < timezone.localdate():
+        return InvoiceStatus.OVERDUE
+    return InvoiceStatus.PARTIAL if paid > ZERO else InvoiceStatus.UNPAID
 
 
 # --------------------------------------------------------------------------- #
@@ -254,6 +280,42 @@ def void_payment(payment: Payment, reason: str, *, actor=None) -> Payment:
 # --------------------------------------------------------------------------- #
 # Student / group balances
 # --------------------------------------------------------------------------- #
+def invoices_with_paid(queryset=None):
+    """Annotate each invoice with its non-void payment total in ONE query.
+
+    ``StudentInvoice.amount_paid`` is a property that issues a ``SUM`` per row, so
+    any loop that reads it costs one query per invoice. Callers that walk many
+    invoices annotate first with this helper and read ``total_paid`` instead, which
+    turns an N+1 into a single aggregate.
+
+    The annotation is added to the invoice queryset itself (not a joined
+    ``values()`` group), so it cannot fan out: one invoice row keeps one row.
+    """
+    if queryset is None:
+        queryset = StudentInvoice.objects.all()
+    paid = Sum("payments__amount", filter=Q(payments__is_void=False))
+    return queryset.annotate(
+        total_paid=Coalesce(
+            paid, Value(ZERO, output_field=DecimalField(max_digits=14, decimal_places=2))
+        )
+    )
+
+
+def _invoice_remaining(invoice) -> Decimal:
+    """Outstanding balance using an already-annotated ``total_paid`` (no query)."""
+    remaining = invoice.amount_due - invoice.total_paid
+    return remaining if remaining > ZERO else ZERO
+
+
+def _invoice_days_overdue(invoice, today: date) -> int:
+    """Days past due for an annotated invoice whose remaining is known non-zero."""
+    if invoice.status in {InvoiceStatus.WAIVED, InvoiceStatus.CANCELLED}:
+        return 0
+    if invoice.due_date >= today:
+        return 0
+    return (today - invoice.due_date).days
+
+
 def student_balance(student: Student) -> dict:
     aggregates = student.invoices.aggregate(
         due=Sum("amount_due"), count=Count("id")
@@ -363,50 +425,71 @@ def payroll_expenses(date_from: date, date_to: date) -> Decimal:
 
 
 def outstanding_receivables(as_of: date | None = None) -> dict:
+    """Unpaid invoices with ageing buckets, computed in a single aggregate query.
+
+    An earlier version looped every invoice and read ``invoice.remaining`` and
+    ``invoice.days_overdue`` - both properties that issue their own ``SUM`` - so a
+    302-invoice centre cost 849 queries. The invoice rows are now annotated with
+    their paid total once (``invoices_with_paid``) and the remaining balance,
+    overdue age and buckets are derived in Python. The returned shape is unchanged.
+    """
     as_of = as_of or timezone.localdate()
-    invoices = StudentInvoice.objects.exclude(
-        status__in=[InvoiceStatus.WAIVED, InvoiceStatus.CANCELLED]
-    ).select_related("student", "group")
-    rows, total, buckets = [], ZERO, {label: {"count": 0, "amount": ZERO} for *_, label in OVERDUE_BUCKETS}
-    unpaid_rows = []
+    invoices = (
+        invoices_with_paid(
+            StudentInvoice.objects.exclude(
+                status__in=[InvoiceStatus.WAIVED, InvoiceStatus.CANCELLED]
+            )
+        )
+        .select_related("student", "group")
+        .order_by("due_date")
+    )
+    rows, total = [], ZERO
+    buckets = {label: {"count": 0, "amount": ZERO} for *_, label in OVERDUE_BUCKETS}
     for invoice in invoices:
-        remaining = invoice.remaining
+        remaining = _invoice_remaining(invoice)
         if remaining <= ZERO:
             continue
         total += remaining
-        days = invoice.days_overdue
-        summary = invoice_summary(invoice) | {"remaining_amount": str(remaining)}
-        unpaid_rows.append(summary)
+        days = _invoice_days_overdue(invoice, as_of)
+        summary = invoice_summary(invoice, paid=invoice.total_paid, remaining=remaining,
+                                  days_overdue=days)
+        summary["remaining_amount"] = str(remaining)
+        rows.append(summary)
         if days > 0:
             for low, high, label in OVERDUE_BUCKETS:
                 if days >= low and (high is None or days <= high):
                     buckets[label]["count"] += 1
                     buckets[label]["amount"] += remaining
                     break
-    unpaid_rows.sort(key=lambda row: (-row["days_overdue"], row["student_name"]))
-    overdue = [row for row in unpaid_rows if row["days_overdue"] > 0]
+    rows.sort(key=lambda row: (-row["days_overdue"], row["student_name"]))
+    overdue = [row for row in rows if row["days_overdue"] > 0]
     return {
         "as_of": as_of,
-        "count": len(unpaid_rows),
+        "count": len(rows),
         "amount": str(quantize(total)),
         "overdue_count": len(overdue),
         "overdue_amount": str(quantize(sum((Decimal(r["remaining_amount"]) for r in overdue), ZERO))),
         "buckets": {label: {"count": data["count"], "amount": str(quantize(data["amount"]))}
                     for label, data in buckets.items()},
-        "invoices": unpaid_rows,
+        "invoices": rows,
         "overdue_invoices": overdue,
     }
 
 
-def finance_summary(date_from: date, date_to: date) -> dict:
-    """The single source of financial truth for a date range (plan section 27)."""
+def finance_summary(date_from: date, date_to: date, *, receivables: dict | None = None) -> dict:
+    """The single source of financial truth for a date range (plan section 27).
+
+    ``receivables`` may be supplied by a caller that already computed
+    ``outstanding_receivables`` for the same ``as_of`` date, so the dashboard does
+    not recompute the whole receivable book once per month (plan: reuse fetched data).
+    """
     fees = student_fee_revenue(date_from, date_to)
     other = other_income(date_from, date_to)
     payroll = payroll_expenses(date_from, date_to)
     other_expenses = total_expenses(date_from, date_to, exclude_payroll=True)
     gross_income = fees + other
     total_out = payroll + other_expenses
-    receivables = outstanding_receivables(date_to)
+    receivables = receivables if receivables is not None else outstanding_receivables(date_to)
     return {
         "from": date_from,
         "to": date_to,
@@ -426,25 +509,50 @@ def finance_summary(date_from: date, date_to: date) -> dict:
     }
 
 
-def monthly_financial_summary(year: int, month: int) -> dict:
+def monthly_financial_summary(year: int, month: int, *, receivables: dict | None = None) -> dict:
     start, end = period_dates(year, month)
-    summary = finance_summary(start, end)
+    summary = finance_summary(start, end, receivables=receivables)
     return summary | {"label": BillingPeriod.label_for(start)}
 
 
 def monthly_financial_series(year: int) -> list[dict]:
-    """Twelve months of income/expense/net for the dashboard chart (real data)."""
+    """Twelve months of income/expense/net for the dashboard chart (real data).
+
+    Four grouped queries (fees, other income, payroll, other expenses) replace the
+    thirty-six per-month aggregates the naive loop issued. Each month is still
+    reported for all twelve slots, zero-filled, so the chart shape is unchanged.
+    """
+    from django.db.models.functions import TruncMonth
+
+    start = date(year, 1, 1)
+
+    def _by_month(queryset, field: str) -> dict[int, Decimal]:
+        rows = (
+            queryset.filter(**{f"{field}__range": (start, date(year, 12, 31))})
+            .annotate(month=TruncMonth(field))
+            .values("month")
+            .annotate(total=Sum("amount"))
+        )
+        return {row["month"].month: row["total"] or ZERO for row in rows}
+
+    fees = _by_month(Payment.objects.filter(is_void=False), "paid_at")
+    other = _by_month(
+        Income.objects.filter(is_void=False).exclude(category=Income.Category.STUDENT_FEES),
+        "date",
+    )
+    expenses = _by_month(Expense.objects.filter(is_void=False), "date")
+
     series = []
     for month in range(1, 13):
-        start, end = period_dates(year, month)
-        income = student_fee_revenue(start, end) + other_income(start, end)
-        expenses = total_expenses(start, end)
+        month_start, _ = period_dates(year, month)
+        income = fees.get(month, ZERO) + other.get(month, ZERO)
+        out = expenses.get(month, ZERO)
         series.append({
-            "label": start.strftime("%b"),
+            "label": month_start.strftime("%b"),
             "month": month,
             "income": str(quantize(income)),
-            "expenses": str(quantize(expenses)),
-            "net": str(quantize(income - expenses)),
+            "expenses": str(quantize(out)),
+            "net": str(quantize(income - out)),
         })
     return series
 
@@ -590,15 +698,21 @@ def recent_payments(limit: int = 8) -> list[dict]:
 
 
 def payment_status_breakdown(period_start: date | None = None) -> dict:
-    """Paid / partial / unpaid / overdue counts for the dashboard widget."""
+    """Paid / partial / unpaid / overdue counts for the dashboard widget.
+
+    Computed from one annotated invoice query instead of reading the per-invoice
+    ``display_status``/``remaining`` properties, each of which issued its own SUM.
+    """
     period_start = period_start or timezone.localdate().replace(day=1)
-    invoices = StudentInvoice.objects.filter(period_start=period_start)
+    invoices = invoices_with_paid(StudentInvoice.objects.filter(period_start=period_start))
     counts = {"paid": 0, "partial": 0, "unpaid": 0, "overdue": 0, "waived": 0}
     amounts = {"paid": ZERO, "partial": ZERO, "unpaid": ZERO, "overdue": ZERO, "waived": ZERO}
     for invoice in invoices:
-        status = invoice.display_status
+        paid = invoice.total_paid
+        remaining = _invoice_remaining(invoice)
+        status = _display_status_from(invoice, paid, remaining)
         counts[status] = counts.get(status, 0) + 1
-        amounts[status] = amounts.get(status, ZERO) + invoice.remaining
+        amounts[status] = amounts.get(status, ZERO) + remaining
     return {
         "period_start": period_start,
         "counts": counts,

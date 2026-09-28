@@ -395,14 +395,18 @@ def incomplete_sessions(day: date | None = None) -> list[dict]:
 
 
 def students_with_repeated_absences(date_from=None, date_to=None) -> list[dict]:
-    """Absence-based watch list, thresholds taken from SystemSettings."""
+    """Absence-based watch list, thresholds taken from SystemSettings.
+
+    The per-student streak is computed from one status query for all candidates,
+    not one query per student (the previous ``_current_absence_streak`` loop).
+    """
     settings_obj = SystemSettings.get_solo()
     date_to = date_to or timezone.localdate()
     date_from = date_from or date_to.replace(day=1)
     threshold = settings_obj.absence_alert_count
     streak_threshold = settings_obj.absence_streak_alert_count
 
-    rows = (
+    rows = list(
         AttendanceRecord.objects.filter(
             session__date__range=(date_from, date_to), status=AttendanceStatus.ABSENT
         )
@@ -412,9 +416,12 @@ def students_with_repeated_absences(date_from=None, date_to=None) -> list[dict]:
         .order_by("-absences")
     )
 
+    candidate_ids = [row["student"] for row in rows]
+    streaks = _absence_streaks(candidate_ids, date_from, date_to) if candidate_ids else {}
+
     alerts = []
     for row in rows:
-        streak = _current_absence_streak(row["student"], date_from, date_to)
+        streak = streaks.get(row["student"], 0)
         alerts.append({
             "student": row["student"],
             "student_name": f"{row['student__first_name']} {row['student__last_name']}",
@@ -426,6 +433,30 @@ def students_with_repeated_absences(date_from=None, date_to=None) -> list[dict]:
             "to": date_to,
         })
     return alerts
+
+
+def _absence_streaks(student_ids, date_from: date, date_to: date) -> dict[int, int]:
+    """Most recent consecutive-absence streak per student, in one query.
+
+    Attendance is read newest-first; the streak counts ABSENT records until the
+    first non-absent status, exactly as ``_current_absence_streak`` did per student.
+    """
+    streaks: dict[int, int] = {}
+    rows = (
+        AttendanceRecord.objects.filter(
+            student_id__in=list(student_ids), session__date__range=(date_from, date_to)
+        )
+        .order_by("student_id", "-session__date", "-id")
+        .values_list("student_id", "status")
+    )
+    for student_id, status in rows:
+        if student_id in streaks and streaks[student_id] == -1:
+            continue  # streak already broken for this student
+        if status == AttendanceStatus.ABSENT:
+            streaks[student_id] = streaks.get(student_id, 0) + 1
+        else:
+            streaks[student_id] = -1
+    return {sid: (0 if s == -1 else s) for sid, s in streaks.items()}
 
 
 def _current_absence_streak(student_id: int, date_from: date, date_to: date) -> int:

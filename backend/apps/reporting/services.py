@@ -31,7 +31,6 @@ from apps.finance.services import (
     group_billing_summary,
     income_breakdown,
     monthly_financial_series,
-    monthly_financial_summary,
     outstanding_receivables,
     payment_status_breakdown,
     payroll_payable,
@@ -78,10 +77,13 @@ def alert_scope_for(user) -> dict:
 
 def build_alerts(*, allowed_student_ids=None, allowed_group_ids=None,
                  include_finance: bool = True, include_receivables: bool = True,
-                 include_payroll: bool = True) -> list[dict]:
+                 include_payroll: bool = True, receivables: dict | None = None,
+                 failing: list | None = None, declining: list | None = None) -> list[dict]:
     """Everything that requires attention now, each pointing at a real record.
 
     ``allowed_*`` narrows the lists for roles that may not see the whole centre.
+    ``receivables``/``failing``/``declining`` let a caller pass already-computed
+    results so the dashboard does not scan the same tables a second time.
     """
     settings_obj = SystemSettings.get_solo()
     today = timezone.localdate()
@@ -94,7 +96,7 @@ def build_alerts(*, allowed_student_ids=None, allowed_group_ids=None,
         return allowed_group_ids is None or group_id in allowed_group_ids
 
     if include_receivables:
-        receivables = outstanding_receivables()
+        receivables = receivables if receivables is not None else outstanding_receivables()
         if receivables["overdue_count"]:
             alerts.append({
                 "key": "overdue_payments",
@@ -138,8 +140,8 @@ def build_alerts(*, allowed_student_ids=None, allowed_group_ids=None,
             "payload": {"sessions": incomplete},
         })
 
-    failing = [row for row in students_below_passing(reference_date=today)
-               if student_allowed(row["student"])]
+    failing_rows = failing if failing is not None else students_below_passing(reference_date=today)
+    failing = [row for row in failing_rows if student_allowed(row["student"])]
     if failing:
         alerts.append({
             "key": "failing_exams",
@@ -152,7 +154,8 @@ def build_alerts(*, allowed_student_ids=None, allowed_group_ids=None,
             "payload": {"students": failing[:10]},
         })
 
-    declining = [row for row in declining_groups() if group_allowed(row["group"])]
+    declining_rows = declining if declining is not None else declining_groups()
+    declining = [row for row in declining_rows if group_allowed(row["group"])]
     if declining:
         alerts.append({
             "key": "declining_groups",
@@ -271,11 +274,14 @@ def at_risk_students(limit: int = 50, restrict_student_ids=None) -> list[dict]:
     )
 
     overdue_map = {}
+    # One annotated query for the whole overdue book instead of reading
+    # ``remaining``/``days_overdue`` per invoice (each of which issued a SUM).
     for invoice in StudentInvoice_overdue():
-        overdue_map[invoice.student_id] = {
-            "days": invoice.days_overdue, "amount": str(invoice.remaining),
-        }
-
+        remaining = invoice.amount_due - invoice.total_paid
+        if remaining <= 0:
+            continue
+        days = (today - invoice.due_date).days if invoice.due_date < today else 0
+        overdue_map[invoice.student_id] = {"days": days, "amount": str(quantize(remaining))}
     failed_map, trend_map = _exam_risk_signals()
 
     results = []
@@ -340,8 +346,9 @@ def student_at_risk(student: Student) -> dict:
 
 def StudentInvoice_overdue():
     from apps.finance.models import InvoiceStatus, StudentInvoice
+    from apps.finance.services import invoices_with_paid
 
-    return (
+    return invoices_with_paid(
         StudentInvoice.objects.filter(due_date__lt=timezone.localdate())
         .exclude(status__in=[InvoiceStatus.PAID, InvoiceStatus.WAIVED, InvoiceStatus.CANCELLED])
         .select_related("student")
@@ -526,12 +533,23 @@ def dashboard_payload(user=None) -> dict:
     attendance_today = daily_totals(today)
     attendance_month = centre_attendance_summary(month_start, today)
 
-    finance_month = finance_summary(month_start, today) if may_see_finance else None
-    previous_finance = finance_summary(previous_month_start, previous_month_end) \
+    # The receivable book is one dataset; compute it once and reuse it for the
+    # current and previous month summaries instead of rebuilding it per month.
+    receivables = outstanding_receivables(today) if may_see_finance else None
+
+    finance_month = finance_summary(month_start, today, receivables=receivables) \
+        if may_see_finance else None
+    previous_finance = finance_summary(previous_month_start, previous_month_end,
+                                       receivables=receivables) \
         if may_see_finance else None
     collections_today = todays_collections(today) if may_see_finance else None
 
-    academic = academic_summary(month_start, today)
+    # Exam-derived figures feed both the academic KPI and the alerts; compute the
+    # shared scans once and reuse them rather than querying exam results twice.
+    below_passing_rows = students_below_passing(reference_date=today)
+    declining_rows = declining_groups()
+    academic = academic_summary(month_start, today, below_passing=below_passing_rows,
+                                declining=declining_rows)
     leads = lead_summary(month_start, today) if may_see_crm else None
 
     alerts = build_alerts(
@@ -540,6 +558,9 @@ def dashboard_payload(user=None) -> dict:
         include_finance=may_see_finance,
         include_receivables=may_see_receivables,
         include_payroll=may_see_payroll,
+        receivables=receivables,
+        failing=below_passing_rows,
+        declining=declining_rows,
     )
 
     finance_block = None
@@ -563,13 +584,17 @@ def dashboard_payload(user=None) -> dict:
 
     widgets = {
         "attendance_today": attendance_today,
-        "todays_schedule": schedule_today(),
-        "upcoming_schedule": upcoming_schedule(7),
+        **_schedule_widgets(),
     }
-    if may_see_finance:
+    if may_see_finance and finance_month is not None:
+        # ``financial_month`` is the current month's summary with a label; it is the
+        # same figures as ``kpis.finance``, so reuse them instead of recomputing.
+        from apps.finance.models import BillingPeriod
+
+        financial_month = {**finance_month, "label": BillingPeriod.label_for(month_start)}
         widgets |= {
             "financial_series": monthly_financial_series(today.year),
-            "financial_month": monthly_financial_summary(today.year, today.month),
+            "financial_month": financial_month,
         }
     if may_see_receivables:
         widgets |= {
@@ -616,53 +641,127 @@ def dashboard_payload(user=None) -> dict:
 
 def schedule_today() -> list[dict]:
     from apps.schedule.services import slots_on_date
-    from apps.attendance.models import AttendanceSession, SessionState
+    from apps.attendance.models import SessionState
 
-    slots = slots_on_date(timezone.localdate())
+    today = timezone.localdate()
+    slots = slots_on_date(today)
     outstanding = {
         session.group_id
-        for session in AttendanceSession.objects.filter(date=timezone.localdate())
+        for session in AttendanceSession.objects.filter(date=today)
         .exclude(state=SessionState.SUBMITTED)
     }
-    return [
-        {
-            "id": slot.pk,
+    counts = _group_student_counts({slot.group_id for slot in slots})
+    return [_schedule_entry(slot, today, outstanding, counts) for slot in slots]
+
+
+def _schedule_widgets(days: int = 7) -> dict:
+    """Both schedule lists for the dashboard, from one slot query.
+
+    ``schedule_today`` and ``upcoming_schedule`` each walked every date separately,
+    so the dashboard issued the schedule query once per day. Here the whole window
+    is fetched once and partitioned, and each group's active-student count is a
+    single grouped query rather than one COUNT per group.
+    """
+    from apps.schedule.services import slots_on_dates
+    from apps.attendance.models import SessionState
+
+    today = timezone.localdate()
+    window = [today + timedelta(days=offset) for offset in range(days)]
+    by_day = slots_on_dates(window)
+
+    todays_slots = by_day.get(today, [])
+    outstanding = {
+        session.group_id
+        for session in AttendanceSession.objects.filter(date=today)
+        .exclude(state=SessionState.SUBMITTED)
+    }
+    counts = _group_student_counts(
+        {slot.group_id for day_slots in by_day.values() for slot in day_slots}
+    )
+
+    upcoming = []
+    for day in window:
+        for slot in by_day.get(day, []):
+            upcoming.append(_schedule_entry(slot, day, set(), counts, with_day=True))
+    return {
+        "todays_schedule": [
+            _schedule_entry(slot, today, outstanding, counts) for slot in todays_slots
+        ],
+        "upcoming_schedule": upcoming[:40],
+    }
+
+
+def _group_student_counts(group_ids) -> dict[int, int]:
+    """Active membership count per group in one query (replaces per-group COUNTs)."""
+    from apps.academics.models import GroupMembership
+
+    ids = list(group_ids)
+    if not ids:
+        return {}
+    rows = (
+        GroupMembership.objects.filter(group_id__in=ids, left_at__isnull=True)
+        .values("group_id")
+        .annotate(total=Count("id"))
+    )
+    counts = {row["group_id"]: row["total"] for row in rows}
+    return {gid: counts.get(gid, 0) for gid in ids}
+
+
+def _schedule_entry(slot, day, outstanding_ids: set, student_counts: dict,
+                    *, with_day: bool = False) -> dict:
+    """One schedule row. Shared by today's list and the week ahead so neither
+    re-implements the field mapping (and the same values cannot drift apart).
+
+    The two shapes differ by design: today's rows carry ``id``/``students``/
+    ``attendance_pending``/``link``; the week-ahead rows carry ``date``/``weekday``
+    and no id. The keys below reproduce each original shape exactly.
+    """
+    if with_day:
+        return {
+            "date": day,
+            "weekday": slot.get_weekday_display(),
             "group": slot.group_id,
             "group_name": slot.group.name,
             "teacher": slot.effective_teacher.full_name if slot.effective_teacher else "",
             "room": slot.effective_room.name if slot.effective_room else "",
             "start_time": slot.start_time.strftime("%H:%M"),
             "end_time": slot.end_time.strftime("%H:%M"),
-            "students": slot.group.student_count,
-            "attendance_pending": slot.group_id in outstanding,
-            "link": f"/attendance?group={slot.group_id}&date={timezone.localdate().isoformat()}",
         }
-        for slot in slots
-    ]
+    return {
+        "id": slot.pk,
+        "group": slot.group_id,
+        "group_name": slot.group.name,
+        "teacher": slot.effective_teacher.full_name if slot.effective_teacher else "",
+        "room": slot.effective_room.name if slot.effective_room else "",
+        "start_time": slot.start_time.strftime("%H:%M"),
+        "end_time": slot.end_time.strftime("%H:%M"),
+        "students": student_counts.get(slot.group_id, 0),
+        "attendance_pending": slot.group_id in outstanding_ids,
+        "link": f"/attendance?group={slot.group_id}&date={day.isoformat()}",
+    }
 
 
 def upcoming_schedule(days: int = 7) -> list[dict]:
-    from apps.schedule.services import slots_on_date
+    from apps.schedule.services import slots_on_dates
 
     today = timezone.localdate()
+    window = [today + timedelta(days=offset) for offset in range(days)]
+    by_day = slots_on_dates(window)
+    counts = _group_student_counts(
+        {slot.group_id for day_slots in by_day.values() for slot in day_slots}
+    )
     entries = []
-    for offset in range(days):
-        day = today + timedelta(days=offset)
-        for slot in slots_on_date(day):
-            entries.append({
-                "date": day,
-                "weekday": slot.get_weekday_display(),
-                "group": slot.group_id,
-                "group_name": slot.group.name,
-                "teacher": slot.effective_teacher.full_name if slot.effective_teacher else "",
-                "room": slot.effective_room.name if slot.effective_room else "",
-                "start_time": slot.start_time.strftime("%H:%M"),
-                "end_time": slot.end_time.strftime("%H:%M"),
-            })
+    for day in window:
+        for slot in by_day.get(day, []):
+            entries.append(_schedule_entry(slot, day, set(), counts, with_day=True))
     return entries[:40]
 
 
-def academic_summary(date_from: date, date_to: date) -> dict:
+def academic_summary(date_from: date, date_to: date, *, below_passing=None,
+                     declining=None) -> dict:
+    """Exam figures for a range. ``below_passing``/``declining`` may be supplied by a
+    caller that already computed them, so the dashboard does not scan exam results
+    twice (once for the KPI, once for the alert)."""
     try:
         from apps.exams.models import Exam, ExamResult
     except Exception:  # pragma: no cover
@@ -672,6 +771,8 @@ def academic_summary(date_from: date, date_to: date) -> dict:
         }
 
     exams = Exam.objects.filter(date__range=(date_from, date_to))
+    below_passing = below_passing if below_passing is not None else students_below_passing(date_to)
+    declining = declining if declining is not None else declining_groups()
     results = ExamResult.objects.filter(exam__date__range=(date_from, date_to), percentage__isnull=False)
     aggregates = results.aggregate(average=Avg("percentage"), count=Count("id"))
     passing_pairs = results.values("id", "percentage", "exam__passing_score", "exam__max_score")
@@ -690,8 +791,8 @@ def academic_summary(date_from: date, date_to: date) -> dict:
         "exams_this_month": exams.count(),
         "average_score": str(quantize(aggregates["average"])) if aggregates["average"] is not None else None,
         "results_recorded": aggregates["count"] or 0,
-        "students_below_passing": len(students_below_passing(date_to)),
-        "declining_groups": len(declining_groups()),
+        "students_below_passing": len(below_passing),
+        "declining_groups": len(declining),
         "pass_rate": str(quantize(Decimal(passed) / Decimal(total) * 100)) if total else None,
         "passed": passed,
         "failed": failed,

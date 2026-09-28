@@ -162,6 +162,41 @@ def slots_on_date(day: date) -> list[ScheduleSlot]:
     return list(queryset)
 
 
+def slots_on_dates(days) -> dict[date, list[ScheduleSlot]]:
+    """Slots for many dates in ONE query, grouped by date.
+
+    ``slots_on_date`` costs a query per day, so a dashboard that walks a whole week
+    paid for seven round trips. Every active slot whose effective window spans the
+    range is fetched once and bucketed by the weekday it falls on. Dates with no
+    slots map to an empty list.
+    """
+    days = list(days)
+    if not days:
+        return {}
+    first, last = min(days), max(days)
+    weekdays = {day.weekday() for day in days}
+    slots = (
+        ScheduleSlot.objects.filter(weekday__in=weekdays, is_active=True,
+                                    effective_from__lte=last)
+        .filter(Q(effective_to__isnull=True) | Q(effective_to__gte=first))
+        .select_related("group", "group__course", "teacher", "room")
+        .order_by("start_time")
+    )
+    by_weekday: dict[int, list[ScheduleSlot]] = {}
+    for slot in slots:
+        by_weekday.setdefault(slot.weekday, []).append(slot)
+    # Re-apply the per-date window exactly as ``slots_on_date`` would, so a slot
+    # that starts later in the week is not shown on an earlier day.
+    result: dict[date, list[ScheduleSlot]] = {}
+    for day in days:
+        result[day] = [
+            slot for slot in by_weekday.get(day.weekday(), [])
+            if slot.effective_from <= day
+            and (slot.effective_to is None or slot.effective_to >= day)
+        ]
+    return result
+
+
 def week_slots(week_start: date, *, teacher=None, room=None, group=None, course=None) -> list[ScheduleSlot]:
     week_end = week_start + __import__("datetime").timedelta(days=6)
     queryset = (
